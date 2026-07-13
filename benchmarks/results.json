@@ -1,0 +1,104 @@
+{
+  "unit": "chars",
+  "results": [
+    {
+      "dataset": "L1 flat config",
+      "description": "flat object, 6 keys",
+      "sizes": {
+        "json": 113,
+        "json-pretty": 138,
+        "yaml": 100,
+        "toon": 99,
+        "soon": 99
+      }
+    },
+    {
+      "dataset": "L2 flat table",
+      "description": "100 uniform rows (TOON/CSV sweet spot)",
+      "sizes": {
+        "json": 6900,
+        "json-pretty": 11908,
+        "yaml": 6796,
+        "toon": 2828,
+        "soon": 2858
+      }
+    },
+    {
+      "dataset": "L3 primitive arrays",
+      "description": "4 large scalar arrays",
+      "sizes": {
+        "json": 3057,
+        "json-pretty": 5586,
+        "yaml": 3844,
+        "toon": 2860,
+        "soon": 2862
+      }
+    },
+    {
+      "dataset": "L4 nested small",
+      "description": "10 orders, depth 3",
+      "sizes": {
+        "json": 2497,
+        "json-pretty": 5327,
+        "yaml": 2729,
+        "toon": 2704,
+        "soon": 1083
+      }
+    },
+    {
+      "dataset": "L5 nested large",
+      "description": "100 orders, depth 3",
+      "sizes": {
+        "json": 24254,
+        "json-pretty": 51456,
+        "yaml": 26497,
+        "toon": 26612,
+        "soon": 9561
+      }
+    },
+    {
+      "dataset": "L6 deeply nested",
+      "description": "tables inside tables, depth 5",
+      "sizes": {
+        "json": 5660,
+        "json-pretty": 15662,
+        "yaml": 7712,
+        "toon": 16900,
+        "soon": 2481
+      }
+    },
+    {
+      "dataset": "L7 semi-uniform",
+      "description": "event log, optional fields",
+      "sizes": {
+        "json": 9801,
+        "json-pretty": 18684,
+        "yaml": 9951,
+        "toon": 11983,
+        "soon": 5488
+      }
+    },
+    {
+      "dataset": "L8 mixed kinds",
+      "description": "field mixes object/string/array/null",
+      "sizes": {
+        "json": 2950,
+        "json-pretty": 6561,
+        "yaml": 3142,
+        "toon": 3694,
+        "soon": 1784
+      }
+    },
+    {
+      "dataset": "L9 adversarial",
+      "description": "irregular everything (worst case)",
+      "sizes": {
+        "json": 1412,
+        "json-pretty": 6458,
+        "yaml": 2007,
+        "toon": 1239,
+        "soon": 1410
+      }
+    }
+  ]
+}
