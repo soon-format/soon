@@ -1,0 +1,9 @@
+{
+  "input": {
+    "a": 1
+  },
+  "options": {
+    "mode": "auto"
+  },
+  "expected": "a: 1"
+}

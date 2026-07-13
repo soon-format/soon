@@ -1,0 +1,13 @@
+{
+  "input": {
+    "name": "Ada",
+    "age": 36,
+    "active": true,
+    "score": 7.5,
+    "note": null
+  },
+  "options": {
+    "mode": "soon"
+  },
+  "expected": "name: Ada\nage: 36\nactive: true\nscore: 7.5\nnote: null"
+}

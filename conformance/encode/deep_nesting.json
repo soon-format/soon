@@ -1,0 +1,50 @@
+{
+  "input": {
+    "app": {
+      "server": {
+        "http": {
+          "host": "0.0.0.0",
+          "port": 8080
+        },
+        "limits": {
+          "maxBody": 1048576
+        }
+      },
+      "workers": [
+        {
+          "id": "w1",
+          "queues": [
+            "default",
+            "mail"
+          ],
+          "opts": {
+            "retries": 3,
+            "backoff": "exp"
+          }
+        },
+        {
+          "id": "w2",
+          "queues": [
+            "default"
+          ],
+          "opts": {
+            "retries": 5,
+            "backoff": "lin"
+          }
+        },
+        {
+          "id": "w3",
+          "queues": [],
+          "opts": {
+            "retries": 1,
+            "backoff": "exp"
+          }
+        }
+      ]
+    }
+  },
+  "options": {
+    "mode": "soon"
+  },
+  "expected": "SHAPE workers = {id,queues:[],opts:{retries,backoff}}\napp:\n  server:\n    http:\n      host: 0.0.0.0\n      port: 8080\n    limits:\n      maxBody: 1048576\n  workers[3]<workers>:\n(w1,[default,mail],(3,exp))\n(w2,[default],(5,lin))\n(w3,[],(1,exp))"
+}

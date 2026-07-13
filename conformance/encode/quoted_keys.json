@@ -1,0 +1,24 @@
+{
+  "input": {
+    "weird key": 1,
+    "a:b": 2,
+    "rows": [
+      {
+        "has space": 1,
+        "ok": 2
+      },
+      {
+        "has space": 3,
+        "ok": 4
+      },
+      {
+        "has space": 5,
+        "ok": 6
+      }
+    ]
+  },
+  "options": {
+    "mode": "soon"
+  },
+  "expected": "SHAPE rows = {\"has space\",ok}\n\"weird key\": 1\n\"a:b\": 2\nrows[3]<rows>:\n(1,2)\n(3,4)\n(5,6)"
+}

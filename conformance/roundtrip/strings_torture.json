@@ -1,0 +1,30 @@
+{
+  "input": {
+    "rows": [
+      {
+        "s": "line\nbreak"
+      },
+      {
+        "s": "quote\"inside"
+      },
+      {
+        "s": "back\\slash"
+      },
+      {
+        "s": "ünïcodé 🎒"
+      },
+      {
+        "s": "ends with space "
+      },
+      {
+        "s": "[bracket]"
+      },
+      {
+        "s": "{brace}"
+      },
+      {
+        "s": "!bang"
+      }
+    ]
+  }
+}

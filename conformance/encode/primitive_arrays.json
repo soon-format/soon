@@ -1,0 +1,21 @@
+{
+  "input": {
+    "tags": [
+      "a",
+      "b c",
+      "true",
+      "3",
+      ""
+    ],
+    "nums": [
+      1,
+      2.5,
+      -3
+    ],
+    "empty": []
+  },
+  "options": {
+    "mode": "soon"
+  },
+  "expected": "tags[5]: a,b c,\"true\",\"3\",\"\"\nnums[3]: 1,2.5,-3\nempty[0]:"
+}

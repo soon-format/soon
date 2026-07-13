@@ -1,0 +1,18 @@
+{
+  "input": {
+    "weird": [
+      1,
+      [
+        2
+      ],
+      {
+        "b": 3
+      }
+    ],
+    "normal": "fine"
+  },
+  "options": {
+    "mode": "soon"
+  },
+  "expected": "weird: ![1,[2],{\"b\":3}]\nnormal: fine"
+}

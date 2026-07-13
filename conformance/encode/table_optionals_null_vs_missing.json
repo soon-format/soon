@@ -1,0 +1,30 @@
+{
+  "input": {
+    "users": [
+      {
+        "id": 1,
+        "name": "Ada",
+        "email": "ada@x.co",
+        "phone": null
+      },
+      {
+        "id": 2,
+        "name": "Linus"
+      },
+      {
+        "id": 3,
+        "name": "Grace",
+        "email": "grace@x.co"
+      },
+      {
+        "id": 4,
+        "name": "Edsger",
+        "phone": null
+      }
+    ]
+  },
+  "options": {
+    "mode": "soon"
+  },
+  "expected": "SHAPE users = {id,name,?email,?phone}\nusers[4]<users>:\n(1,Ada,ada@x.co,null)\n(2,Linus,_,_)\n(3,Grace,grace@x.co,_)\n(4,Edsger,_,null)"
+}

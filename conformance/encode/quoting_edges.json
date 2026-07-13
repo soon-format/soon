@@ -1,0 +1,40 @@
+{
+  "input": {
+    "vals": [
+      {
+        "s": "_"
+      },
+      {
+        "s": "null"
+      },
+      {
+        "s": "-12.5"
+      },
+      {
+        "s": "1e5"
+      },
+      {
+        "s": "with, comma"
+      },
+      {
+        "s": "(paren)"
+      },
+      {
+        "s": " padded "
+      },
+      {
+        "s": "plain words"
+      },
+      {
+        "s": ""
+      },
+      {
+        "s": "tab\there"
+      }
+    ]
+  },
+  "options": {
+    "mode": "soon"
+  },
+  "expected": "SHAPE vals = {s}\nvals[10]<vals>:\n(\"_\")\n(\"null\")\n(\"-12.5\")\n(\"1e5\")\n(\"with, comma\")\n(\"(paren)\")\n(\" padded \")\n(plain words)\n(\"\")\n(\"tab\\there\")"
+}

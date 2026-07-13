@@ -1,0 +1,13 @@
+{
+  "input": [
+    1,
+    2.5,
+    "three",
+    null,
+    true
+  ],
+  "options": {
+    "mode": "soon"
+  },
+  "expected": "[5]: 1,2.5,three,null,true"
+}

@@ -1,0 +1,3 @@
+{
+  "input": "SHAPE u = {id,name}\nusers[1]<u>:\n(1,_)"
+}

@@ -1,0 +1,20 @@
+{
+  "input": {
+    "şehir": "İzmir",
+    "notes": [
+      {
+        "t": "çok güzel"
+      },
+      {
+        "t": "harika ✨"
+      },
+      {
+        "t": "日本語"
+      }
+    ]
+  },
+  "options": {
+    "mode": "soon"
+  },
+  "expected": "\"şehir\": \"İzmir\"\nnotes: ![{\"t\":\"çok güzel\"},{\"t\":\"harika ✨\"},{\"t\":\"日本語\"}]"
+}

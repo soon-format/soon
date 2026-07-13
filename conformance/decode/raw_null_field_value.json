@@ -1,0 +1,11 @@
+{
+  "input": "SHAPE e = {ts,payload:!}\nevents[1]<e>:\n(1,!null)",
+  "expected": {
+    "events": [
+      {
+        "ts": 1,
+        "payload": null
+      }
+    ]
+  }
+}

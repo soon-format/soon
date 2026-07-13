@@ -1,0 +1,59 @@
+{
+  "input": {
+    "orders": [
+      {
+        "id": 1,
+        "customer": {
+          "name": "Ada",
+          "tier": "gold",
+          "address": {
+            "city": "Boulder",
+            "zip": "80301"
+          }
+        },
+        "items": [
+          {
+            "sku": "A1",
+            "qty": 2,
+            "price": 9.5
+          },
+          {
+            "sku": "B2",
+            "qty": 1,
+            "price": 4.25
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "customer": {
+          "name": "Linus",
+          "tier": "silver",
+          "address": {
+            "city": "Helsinki",
+            "zip": "00100"
+          }
+        },
+        "items": [
+          {
+            "sku": "A1",
+            "qty": 1,
+            "price": 9.5
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "customer": {
+          "name": "Grace",
+          "tier": "gold",
+          "address": {
+            "city": "Arlington",
+            "zip": "22201"
+          }
+        },
+        "items": []
+      }
+    ]
+  }
+}
