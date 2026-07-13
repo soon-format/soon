@@ -1,0 +1,17 @@
+{
+  "name": "soon-monorepo",
+  "private": true,
+  "workspaces": [
+    "ts/packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @soon-format/soon && npm run build -w @soon-format/cli",
+    "test": "npm test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}
