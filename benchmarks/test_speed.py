@@ -17,12 +17,14 @@ L5_DOC = encode(L5)
 L7_DOC = encode(L7)
 
 
-@pytest.mark.parametrize("data,label", [(L5, "L5-nested"), (L7, "L7-semi")], ids=["L5", "L7"])
-def test_encode_speed(benchmark, data, label):
+@pytest.mark.parametrize("data", [L5, L7], ids=["L5-nested", "L7-semi"])
+def test_encode_speed(benchmark, data):
     benchmark(encode, data)
 
 
-@pytest.mark.parametrize("doc,expected", [(L5_DOC, L5), (L7_DOC, L7)], ids=["L5", "L7"])
+@pytest.mark.parametrize(
+    "doc,expected", [(L5_DOC, L5), (L7_DOC, L7)], ids=["L5-nested", "L7-semi"]
+)
 def test_decode_speed(benchmark, doc, expected):
     assert benchmark(decode, doc) == expected
 
