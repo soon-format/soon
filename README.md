@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/social/readme-banner-dark.png">
+    <img alt="soon — shape-oriented object notation" src="assets/brand/social/readme-banner-light.png" width="720">
+  </picture>
+</p>
+
 # SOON — Shape-Oriented Object Notation
 
 **The token-efficient replacement for JSON in LLM prompts.**
