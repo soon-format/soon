@@ -45,9 +45,15 @@ def main() -> int:
         check=True,
     )
     ts_outputs = json.loads(result.stdout)
+    if len(ts_outputs) != len(cases):
+        print(
+            f"protocol error: TS returned {len(ts_outputs)} outputs for {len(cases)} cases",
+            file=sys.stderr,
+        )
+        return 2
 
     failures = 0
-    for case, ts_out in zip(cases, ts_outputs):
+    for case, ts_out in zip(cases, ts_outputs, strict=True):
         py_out = encode(case["input"], **case["options"])
         if py_out != ts_out:
             failures += 1
