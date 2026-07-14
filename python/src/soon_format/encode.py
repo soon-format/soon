@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from typing import Any
 
 from .errors import SoonEncodeError
@@ -15,14 +16,22 @@ INDENT = "  "
 KEY_TOKEN = re.compile(r"[A-Za-z0-9_\-]+")
 _NAME_SANITIZE = re.compile(r"[^A-Za-z0-9_]")
 
+# A cost function measures a candidate encoding fragment. Defaults to
+# character length; when a tokenizer is configured it returns real token
+# counts. Threaded via ``_Registry.cost`` so every local decision (table vs.
+# fallback, future adaptive-block gate) agrees with the outer document-level
+# compare in ``encode()``.
+CostFn = Callable[[str], int]
+
 
 class _Registry:
     """Named shape declarations, deduplicated by structural signature."""
 
-    def __init__(self) -> None:
+    def __init__(self, cost: CostFn) -> None:
         self.by_sig: dict[str, str] = {}
         self.names: set[str] = set()
         self.decls: list[tuple[str, str]] = []
+        self.cost: CostFn = cost
 
     def has(self, sig: str) -> bool:
         return sig in self.by_sig
@@ -62,17 +71,18 @@ def encode(data: Any, *, mode: str = "auto", tokenizer: str | None = None) -> st
     cj = compact_json(data)
     if mode == "json":
         return cj
-    doc = _encode_soon(data)
+    enc = get_encoder(tokenizer)
+    cost: CostFn = (lambda s: text_cost(s, enc)) if enc is not None else len
+    doc = _encode_soon(data, cost)
     if doc is None:
         return cj
     if mode == "soon":
         return doc
-    enc = get_encoder(tokenizer)
-    return doc if text_cost(doc, enc) < text_cost(cj, enc) else cj
+    return doc if cost(doc) < cost(cj) else cj
 
 
-def _encode_soon(data: Any) -> str | None:
-    reg = _Registry()
+def _encode_soon(data: Any, cost: CostFn) -> str | None:
+    reg = _Registry(cost)
     body: list[str] | None
     if isinstance(data, dict):
         body = _entries(data, 0, reg) if data else None
@@ -134,9 +144,11 @@ def _try_table(
     shape = infer_shape(value)
     sig = serialize_shape(shape)
     rows = [_tuple(el, shape) for el in value]
-    decl_cost = 0 if reg.has(sig) else len(f"SHAPE {hint} = {sig}\n")
-    soon_cost = decl_cost + sum(len(r) + 1 for r in rows)
-    if soon_cost >= len(compact_json(value)):
+    decl_cost = 0 if reg.has(sig) else reg.cost(f"SHAPE {hint} = {sig}\n")
+    # Rows are emitted joined by newlines; tokenize the joined block so token
+    # costs account for BPE merges across the newline boundaries.
+    rows_cost = reg.cost("\n".join(rows) + "\n") if rows else 0
+    if decl_cost + rows_cost >= reg.cost(compact_json(value)):
         return None
     name = reg.register(shape, hint)
     return name, rows

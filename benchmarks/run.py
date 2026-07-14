@@ -34,7 +34,7 @@ from soon_format import decode as soon_decode  # noqa: E402
 from soon_format import encode as soon_encode  # noqa: E402
 
 
-def formatters() -> dict[str, Callable[[Any], str]]:
+def formatters(tokenizer: str | None) -> dict[str, Callable[[Any], str]]:
     fmts: dict[str, Callable[[Any], str]] = {
         "json": lambda d: json.dumps(d, separators=(",", ":"), ensure_ascii=False),
         "json-pretty": lambda d: json.dumps(d, indent=2, ensure_ascii=False),
@@ -53,7 +53,8 @@ def formatters() -> dict[str, Callable[[Any], str]]:
         fmts["toon"] = lambda d: toon_encode(d)
     except ImportError:
         print("note: toon-py not installed; skipping TOON column", file=sys.stderr)
-    fmts["soon"] = lambda d: soon_encode(d)
+    # SOON's auto-mode decisions use the same tokenizer the bench measures with.
+    fmts["soon"] = lambda d: soon_encode(d, tokenizer=tokenizer)
     return fmts
 
 
@@ -73,15 +74,15 @@ def main() -> int:
     else:
         counter = len
 
-    fmts = formatters()
+    fmts = formatters(args.tokenizer)
     results = []
     for name, desc, gen in DATASETS:
         data = gen()
         # Correctness gates for SOON before it may be reported.
-        soon_doc = soon_encode(data)
+        soon_doc = soon_encode(data, tokenizer=args.tokenizer)
         assert soon_decode(soon_doc) == data, f"lossless check failed: {name}"
         cj = json.dumps(data, separators=(",", ":"), ensure_ascii=False)
-        assert len(soon_doc) <= len(cj), f"never-worse check failed: {name}"
+        assert counter(soon_doc) <= counter(cj), f"never-worse check failed: {name}"
 
         sizes = {fmt: counter(f(data)) for fmt, f in fmts.items()}
         results.append({"dataset": name, "description": desc, "sizes": sizes})
