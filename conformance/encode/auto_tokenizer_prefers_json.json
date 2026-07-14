@@ -1,0 +1,14 @@
+{
+  "input": {
+    "items": [
+      {"emoji": "🌟", "name": "star"},
+      {"emoji": "🔥", "name": "fire"},
+      {"emoji": "✨", "name": "spark"}
+    ]
+  },
+  "options": {
+    "mode": "auto",
+    "tokenizer": "o200k_base"
+  },
+  "expected": "{\"items\":[{\"emoji\":\"🌟\",\"name\":\"star\"},{\"emoji\":\"🔥\",\"name\":\"fire\"},{\"emoji\":\"✨\",\"name\":\"spark\"}]}"
+}
