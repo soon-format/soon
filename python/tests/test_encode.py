@@ -32,20 +32,42 @@ def test_hikes_golden():
 
 
 def test_optional_fields():
+    # Enough rows that the SHAPE-table form is genuinely cheaper than raw
+    # inline-JSON — otherwise _try_table's honest cost model correctly
+    # picks the smaller RAW form, and this test would exercise nothing
+    # about optional-field detection.
     data = {
         "users": [
             {"id": 1, "name": "Ada", "email": "ada@x.co"},
             {"id": 2, "name": "Linus"},
+            {"id": 3, "name": "Grace", "email": "grace@x.co"},
+            {"id": 4, "name": "Alan"},
+            {"id": 5, "name": "Barbara", "email": "b@x.co"},
         ]
     }
     doc = encode(data, mode="soon")
     assert "?email" in doc
     assert "(2,Linus,_)" in doc
+    assert "(4,Alan,_)" in doc
     assert decode(doc) == data
 
 
 def test_null_vs_missing():
-    data = {"rows": [{"a": 1, "b": None}, {"a": 2}, {"a": 3, "b": None}, {"a": 4}, {"a": 5}]}
+    # Uniform-enough rows that the TABLE form wins the cost compare
+    # against ``![...]``. Tests the null-vs-absent distinction in the
+    # emitted tuples.
+    data = {
+        "rows": [
+            {"a": 1, "b": None},
+            {"a": 2},
+            {"a": 3, "b": None},
+            {"a": 4},
+            {"a": 5},
+            {"a": 6, "b": None},
+            {"a": 7},
+            {"a": 8, "b": None},
+        ]
+    }
     doc = encode(data, mode="soon")
     assert "(1,null)" in doc
     assert "(2,_)" in doc
