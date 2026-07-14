@@ -28,9 +28,16 @@ process.stdout.write(JSON.stringify(cases.map((c) => encode(c.input, c.options ?
 
 def main() -> int:
     cases = []
+    skipped_tokenizer = 0
     for f in sorted((ROOT / "conformance" / "encode").glob("*.json")):
         fixture = json.loads(f.read_text(encoding="utf-8"))
-        cases.append({"name": f.stem, "input": fixture["input"], "options": fixture.get("options", {})})
+        opts = fixture.get("options", {})
+        # Tokenizer-parameterized fixtures can't run cross-implementation until
+        # TS gets tokenizer parity (#9); skip them here.
+        if "tokenizer" in opts:
+            skipped_tokenizer += 1
+            continue
+        cases.append({"name": f.stem, "input": fixture["input"], "options": opts})
     for f in sorted((ROOT / "conformance" / "roundtrip").glob("*.json")):
         fixture = json.loads(f.read_text(encoding="utf-8"))
         for mode in ("auto", "soon"):
@@ -61,7 +68,8 @@ def main() -> int:
     if failures:
         print(f"{failures}/{len(cases)} cases diverged")
         return 1
-    print(f"differential OK: {len(cases)} cases byte-identical across implementations")
+    suffix = f" (skipped {skipped_tokenizer} tokenizer-only)" if skipped_tokenizer else ""
+    print(f"differential OK: {len(cases)} cases byte-identical across implementations{suffix}")
     return 0
 
 

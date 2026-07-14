@@ -139,3 +139,31 @@ def test_empty_containers():
 
 def test_deterministic():
     assert encode(HIKES) == encode(HIKES)
+
+
+def test_tokenizer_flips_local_decision():
+    """Same input; different cost fn → different output. Proves the cost
+    function reaches every decision (not just the outer doc-level compare)."""
+    tiktoken = pytest.importorskip("tiktoken")
+    del tiktoken  # ensure the import succeeded; encode() will look it up itself
+    data = {
+        "items": [
+            {"emoji": "🌟", "name": "star"},
+            {"emoji": "🔥", "name": "fire"},
+            {"emoji": "✨", "name": "spark"},
+        ]
+    }
+    char_doc = encode(data)
+    token_doc = encode(data, tokenizer="o200k_base")
+    assert char_doc != token_doc
+    # Char-cost picks the SOON table; token-cost falls back to compact JSON.
+    assert char_doc.startswith("SHAPE items =")
+    assert token_doc.startswith("{")
+    # Round-trip both.
+    assert decode(char_doc) == data
+    assert decode(token_doc) == data
+
+
+def test_tokenizer_deterministic():
+    pytest.importorskip("tiktoken")
+    assert encode(HIKES, tokenizer="o200k_base") == encode(HIKES, tokenizer="o200k_base")

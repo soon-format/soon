@@ -19,6 +19,17 @@ const INDENT = "  ";
 const KEY_TOKEN = /^[A-Za-z0-9_\-]+$/;
 const NAME_SANITIZE = /[^A-Za-z0-9_]/g;
 
+/**
+ * A cost function measures a candidate encoding fragment. Defaults to
+ * character length; when a tokenizer is configured (see issue #9 for TS
+ * tokenizer parity) it returns real token counts. Threaded via
+ * `Registry.cost` so every local decision (table vs. fallback, future
+ * adaptive-block gate) agrees with the outer document-level compare in
+ * `encode()`.
+ */
+export type CostFn = (s: string) => number;
+const charCost: CostFn = (s) => s.length;
+
 export interface EncodeOptions {
   /**
    * - `auto` (default): SOON, falling back to compact JSON whenever SOON
@@ -34,6 +45,11 @@ class Registry {
   private readonly bySig = new Map<string, string>();
   private readonly names = new Set<string>();
   readonly decls: Array<[string, string]> = [];
+  readonly cost: CostFn;
+
+  constructor(cost: CostFn) {
+    this.cost = cost;
+  }
 
   has(sig: string): boolean {
     return this.bySig.has(sig);
@@ -62,14 +78,15 @@ export function encode(data: JsonValue, options: EncodeOptions = {}): string {
   }
   const cj = compactJson(data);
   if (mode === "json") return cj;
-  const doc = encodeSoon(data);
+  const cost = charCost;
+  const doc = encodeSoon(data, cost);
   if (doc === null) return cj;
   if (mode === "soon") return doc;
-  return doc.length < cj.length ? doc : cj;
+  return cost(doc) < cost(cj) ? doc : cj;
 }
 
-function encodeSoon(data: JsonValue): string | null {
-  const reg = new Registry();
+function encodeSoon(data: JsonValue, cost: CostFn): string | null {
+  const reg = new Registry(cost);
   let body: string[] | null;
   if (data !== null && typeof data === "object" && !Array.isArray(data)) {
     body = Object.keys(data).length > 0 ? entries(data, 0, reg) : null;
@@ -143,9 +160,11 @@ function tryTable(
   const shape = inferShape(elements);
   const sig = serializeShape(shape);
   const rows = elements.map((el) => tuple(el, shape));
-  const declCost = reg.has(sig) ? 0 : `SHAPE ${hint} = ${sig}\n`.length;
-  const soonCost = declCost + rows.reduce((acc, r) => acc + r.length + 1, 0);
-  if (soonCost >= compactJson(value).length) return null;
+  const declCost = reg.has(sig) ? 0 : reg.cost(`SHAPE ${hint} = ${sig}\n`);
+  // Rows are emitted joined by newlines; tokenize the joined block so token
+  // costs account for BPE merges across the newline boundaries.
+  const rowsCost = rows.length > 0 ? reg.cost(rows.join("\n") + "\n") : 0;
+  if (declCost + rowsCost >= reg.cost(compactJson(value))) return null;
   const name = reg.register(shape, hint);
   return [name, rows];
 }
