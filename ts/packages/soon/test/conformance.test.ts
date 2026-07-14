@@ -28,12 +28,6 @@ function fixtures(sub: string): Fixture[] {
 
 describe("conformance: encode", () => {
   for (const c of fixtures("encode")) {
-    // Tokenizer-parameterized fixtures await TS tokenizer parity (#9); the
-    // Python conformance suite exercises them today.
-    if (c.options?.tokenizer !== undefined) {
-      it.skip(`${c.name} (awaits #9: TS tokenizer support)`, () => {});
-      continue;
-    }
     it(c.name, () => {
       expect(encode(c.input as never, c.options)).toBe(c.expected);
     });

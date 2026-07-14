@@ -63,6 +63,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_check = sub.add_parser("check", help="verify decode(encode(x)) == x for a JSON input")
     p_check.add_argument("input", nargs="?", default="-")
+    p_check.add_argument(
+        "--tokenizer",
+        help="tiktoken encoding (e.g. o200k_base); also round-trips the "
+        "tokenizer-driven auto-mode output",
+    )
     return parser
 
 
@@ -90,11 +95,18 @@ def main(argv: list[str] | None = None) -> int:
             )
         elif args.command == "check":
             data = json.loads(_read(args.input))
+            tokenizer = args.tokenizer
             for mode in ("auto", "soon"):
-                if decode(encode(data, mode=mode)) != data:
-                    sys.stderr.write(f"round-trip FAILED in mode={mode}\n")
+                if decode(encode(data, mode=mode, tokenizer=tokenizer)) != data:
+                    label = f"mode={mode}" + (
+                        f", tokenizer={tokenizer}" if tokenizer else ""
+                    )
+                    sys.stderr.write(f"round-trip FAILED in {label}\n")
                     return 1
-            sys.stderr.write("round-trip OK (auto, soon)\n")
+            summary = "round-trip OK (auto, soon)"
+            if tokenizer:
+                summary += f" with tokenizer={tokenizer}"
+            sys.stderr.write(summary + "\n")
     except (SoonError, json.JSONDecodeError, OSError) as exc:
         sys.stderr.write(f"error: {exc}\n")
         return 1
