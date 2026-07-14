@@ -169,9 +169,14 @@ named `item`.
 
 ## 8. Determinism
 
-Given identical input and options, an encoder MUST produce byte-identical
-output. Cost comparisons use character counts unless a tokenizer is
-configured.
+Given identical input and options (including any configured tokenizer), an
+encoder MUST produce byte-identical output. A single cost function measures
+every local decision (shape declarations, table-vs-fallback, root array,
+document-level compare); character length is the default, and a configured
+tokenizer replaces it uniformly. Because BPE token counts diverge from
+character counts, two encoders with the same input but different tokenizers
+MAY produce different output, and this is a permitted (deterministic-per-
+tokenizer) choice.
 
 ## 9. Errors
 
