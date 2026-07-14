@@ -7,7 +7,8 @@ token-efficient encoding of nested JSON for LLM prompts.
 npx @soon-format/cli encode data.json --stats
 cat data.json | npx @soon-format/cli encode -
 npx @soon-format/cli decode doc.soon
-npx @soon-format/cli check data.json   # round-trip verification, exit 0/1
+npx @soon-format/cli decode doc.soon --pretty   # indented JSON
+npx @soon-format/cli check data.json            # round-trip verification, exit 0/1
 ```
 
 Library: [`@soon-format/soon`](https://www.npmjs.com/package/@soon-format/soon).

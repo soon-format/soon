@@ -28,8 +28,9 @@ CLI:
 
 ```bash
 soon encode data.json --stats
-soon decode doc.soon
-soon check data.json   # round-trip verification
+soon decode doc.soon              # compact JSON to stdout
+soon decode doc.soon --pretty     # indented JSON
+soon check data.json              # round-trip verification
 ```
 
 Docs, spec and the shared conformance suite:
