@@ -24,3 +24,12 @@ ts/packages/*/dist/
 .idea/
 .vscode/*
 !.vscode/settings.json
+
+# Assets — ignore everything except files referenced from READMEs
+assets/*
+!assets/brand/
+assets/brand/*
+!assets/brand/social/
+assets/brand/social/*
+!assets/brand/social/readme-banner-light.png
+!assets/brand/social/readme-banner-dark.png
