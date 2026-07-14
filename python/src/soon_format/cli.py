@@ -53,6 +53,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_decode = sub.add_parser("decode", help="decode SOON back to compact JSON")
     p_decode.add_argument("input", nargs="?", default="-", help="input SOON file or '-' (stdin)")
     p_decode.add_argument("-o", "--output", help="output file (default: stdout)")
+    p_decode.add_argument(
+        "--pretty", action="store_true", help="indent JSON output (default: compact)"
+    )
 
     p_stats = sub.add_parser("stats", help="report SOON vs JSON size for a JSON input")
     p_stats.add_argument("input", nargs="?", default="-")
@@ -75,9 +78,11 @@ def main(argv: list[str] | None = None) -> int:
                 sys.stderr.write(json.dumps(report) + "\n")
         elif args.command == "decode":
             value = decode(_read(args.input))
-            _write(
-                json.dumps(value, separators=(",", ":"), ensure_ascii=False), args.output
-            )
+            if args.pretty:
+                out = json.dumps(value, indent=2, ensure_ascii=False)
+            else:
+                out = json.dumps(value, separators=(",", ":"), ensure_ascii=False)
+            _write(out, args.output)
         elif args.command == "stats":
             data = json.loads(_read(args.input))
             sys.stdout.write(
