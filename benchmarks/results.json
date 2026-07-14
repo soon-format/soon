@@ -1,103 +1,170 @@
 {
-  "unit": "chars",
+  "tokenizer": "o200k_base",
+  "units": [
+    "chars",
+    "tokens"
+  ],
   "results": [
     {
       "dataset": "L1 flat config",
       "description": "flat object, 6 keys",
       "sizes": {
-        "json": 113,
-        "json-pretty": 138,
-        "yaml": 100,
-        "toon": 99,
-        "soon": 99
+        "chars": {
+          "json": 113,
+          "json-pretty": 138,
+          "yaml": 100,
+          "soon": 113
+        },
+        "tokens": {
+          "json": 36,
+          "json-pretty": 54,
+          "yaml": 38,
+          "soon": 36
+        }
       }
     },
     {
       "dataset": "L2 flat table",
       "description": "100 uniform rows (TOON/CSV sweet spot)",
       "sizes": {
-        "json": 6900,
-        "json-pretty": 11908,
-        "yaml": 6796,
-        "toon": 2828,
-        "soon": 2858
+        "chars": {
+          "json": 6900,
+          "json-pretty": 11908,
+          "yaml": 6796,
+          "soon": 2858
+        },
+        "tokens": {
+          "json": 2162,
+          "json-pretty": 3966,
+          "yaml": 2850,
+          "soon": 1163
+        }
       }
     },
     {
       "dataset": "L3 primitive arrays",
       "description": "4 large scalar arrays",
       "sizes": {
-        "json": 3057,
-        "json-pretty": 5586,
-        "yaml": 3844,
-        "toon": 2860,
-        "soon": 2862
+        "chars": {
+          "json": 3057,
+          "json-pretty": 5586,
+          "yaml": 3844,
+          "soon": 2862
+        },
+        "tokens": {
+          "json": 1442,
+          "json-pretty": 2461,
+          "yaml": 2339,
+          "soon": 1430
+        }
       }
     },
     {
       "dataset": "L4 nested small",
       "description": "10 orders, depth 3",
       "sizes": {
-        "json": 2497,
-        "json-pretty": 5327,
-        "yaml": 2729,
-        "toon": 2704,
-        "soon": 1083
+        "chars": {
+          "json": 2497,
+          "json-pretty": 5327,
+          "yaml": 2729,
+          "soon": 1083
+        },
+        "tokens": {
+          "json": 863,
+          "json-pretty": 1601,
+          "yaml": 1095,
+          "soon": 518
+        }
       }
     },
     {
       "dataset": "L5 nested large",
       "description": "100 orders, depth 3",
       "sizes": {
-        "json": 24254,
-        "json-pretty": 51456,
-        "yaml": 26497,
-        "toon": 26612,
-        "soon": 9561
+        "chars": {
+          "json": 24254,
+          "json-pretty": 51456,
+          "yaml": 26497,
+          "soon": 9561
+        },
+        "tokens": {
+          "json": 8301,
+          "json-pretty": 15398,
+          "yaml": 10547,
+          "soon": 4668
+        }
       }
     },
     {
       "dataset": "L6 deeply nested",
       "description": "tables inside tables, depth 5",
       "sizes": {
-        "json": 5660,
-        "json-pretty": 15662,
-        "yaml": 7712,
-        "toon": 16900,
-        "soon": 2481
+        "chars": {
+          "json": 5660,
+          "json-pretty": 15662,
+          "yaml": 7712,
+          "soon": 2481
+        },
+        "tokens": {
+          "json": 1968,
+          "json-pretty": 3432,
+          "yaml": 2390,
+          "soon": 1124
+        }
       }
     },
     {
       "dataset": "L7 semi-uniform",
       "description": "event log, optional fields",
       "sizes": {
-        "json": 9801,
-        "json-pretty": 18684,
-        "yaml": 9951,
-        "toon": 11983,
-        "soon": 5488
+        "chars": {
+          "json": 9801,
+          "json-pretty": 18684,
+          "yaml": 9951,
+          "soon": 5488
+        },
+        "tokens": {
+          "json": 3332,
+          "json-pretty": 6161,
+          "yaml": 4189,
+          "soon": 2316
+        }
       }
     },
     {
       "dataset": "L8 mixed kinds",
       "description": "field mixes object/string/array/null",
       "sizes": {
-        "json": 2950,
-        "json-pretty": 6561,
-        "yaml": 3142,
-        "toon": 3694,
-        "soon": 1784
+        "chars": {
+          "json": 2950,
+          "json-pretty": 6561,
+          "yaml": 3142,
+          "soon": 1784
+        },
+        "tokens": {
+          "json": 1015,
+          "json-pretty": 2178,
+          "yaml": 1455,
+          "soon": 811
+        }
       }
     },
     {
       "dataset": "L9 adversarial",
       "description": "irregular everything (worst case)",
       "sizes": {
-        "json": 1412,
-        "json-pretty": 6458,
-        "yaml": 2007,
-        "toon": 1239,
-        "soon": 1410
+        "chars": {
+          "json": 1412,
+          "json-pretty": 6458,
+          "yaml": 2007,
+          "soon": 1412
+        },
+        "tokens": {
+          "json": 681,
+          "json-pretty": 1685,
+          "yaml": 1040,
+          "soon": 681
+        }
       }
     }
   ]
