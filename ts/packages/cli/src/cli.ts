@@ -27,6 +27,7 @@ Options:
   -o, --output <file>   output file (default: stdout)
   --mode <auto|soon|json>   encoding mode (default: auto)
   --stats               (encode) print a savings report to stderr
+  --pretty              (decode) indent JSON output
   -h, --help            show this help
   --version             show version
 `;
@@ -37,6 +38,7 @@ interface Args {
   output?: string;
   mode: "auto" | "soon" | "json";
   stats: boolean;
+  pretty: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -53,7 +55,7 @@ function parseArgs(argv: string[]): Args {
     process.stderr.write(`error: unknown command ${JSON.stringify(command)}\n\n${USAGE}`);
     process.exit(2);
   }
-  const args: Args = { command, input: "-", mode: "auto", stats: false };
+  const args: Args = { command, input: "-", mode: "auto", stats: false, pretty: false };
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i] as string;
     if (a === "-o" || a === "--output") {
@@ -72,6 +74,8 @@ function parseArgs(argv: string[]): Args {
       args.mode = m;
     } else if (a === "--stats") {
       args.stats = true;
+    } else if (a === "--pretty") {
+      args.pretty = true;
     } else if (a.startsWith("-") && a !== "-") {
       process.stderr.write(`error: unknown option ${JSON.stringify(a)}\n`);
       process.exit(2);
@@ -126,7 +130,8 @@ function main(): number {
         process.stderr.write(JSON.stringify(stats(data)) + "\n");
       }
     } else if (args.command === "decode") {
-      write(JSON.stringify(decode(read(args.input))), args.output);
+      const value = decode(read(args.input));
+      write(args.pretty ? JSON.stringify(value, null, 2) : JSON.stringify(value), args.output);
     } else if (args.command === "stats") {
       const data = JSON.parse(read(args.input)) as JsonValue;
       process.stdout.write(JSON.stringify(stats(data), null, 2) + "\n");
