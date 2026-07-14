@@ -59,13 +59,15 @@ def _require_tiktoken() -> Any:
 
 def _load_bundled_ranks(filename: str) -> dict[bytes, int]:
     """Parse a gzipped .tiktoken file into a mergeable_ranks mapping."""
-    with resources.files("soon_format.vocab").joinpath(filename).open("rb") as raw:
-        with gzip.open(raw, "rb") as fh:
-            ranks: dict[bytes, int] = {}
-            for line in fh:
-                b64, rank = line.split()
-                ranks[base64.b64decode(b64)] = int(rank)
-            return ranks
+    with (
+        resources.files("soon_format.vocab").joinpath(filename).open("rb") as raw,
+        gzip.open(raw, "rb") as fh,
+    ):
+        ranks: dict[bytes, int] = {}
+        for line in fh:
+            b64, rank = line.split()
+            ranks[base64.b64decode(b64)] = int(rank)
+        return ranks
 
 
 def _build_encoder(name: str) -> Any:

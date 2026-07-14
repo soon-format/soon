@@ -179,10 +179,7 @@ def _try_table(
     rows = [_tuple(el, shape) for el in value]
     name = reg.peek(sig, hint)
     body = f"{header_prefix}<{name}>:\n" + "\n".join(rows)
-    if reg.has(sig):
-        soon_fragment = body
-    else:
-        soon_fragment = f"SHAPE {name} = {sig}\n{body}"
+    soon_fragment = body if reg.has(sig) else f"SHAPE {name} = {sig}\n{body}"
     if reg.cost(soon_fragment) >= reg.cost(json_line):
         return None
     reg.register(shape, hint)
