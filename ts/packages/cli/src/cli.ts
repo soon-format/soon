@@ -24,12 +24,16 @@ Commands:
   check  [file|-]   verify decode(encode(x)) == x, exit code 0/1
 
 Options:
-  -o, --output <file>   output file (default: stdout)
+  -o, --output <file>       output file (default: stdout)
   --mode <auto|soon|json>   encoding mode (default: auto)
-  --stats               (encode) print a savings report to stderr
-  --pretty              (decode) indent JSON output
-  -h, --help            show this help
-  --version             show version
+  --tokenizer <name>        js-tiktoken encoding name (e.g. o200k_base) — real
+                            token cost, no network. On encode/stats it drives
+                            the auto-mode decision; on check it additionally
+                            round-trips the tokenizer-selected output.
+  --stats                   (encode) print a savings report to stderr
+  --pretty                  (decode) indent JSON output
+  -h, --help                show this help
+  --version                 show version
 `;
 
 interface Args {
@@ -39,6 +43,7 @@ interface Args {
   mode: "auto" | "soon" | "json";
   stats: boolean;
   pretty: boolean;
+  tokenizer?: string;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -72,6 +77,13 @@ function parseArgs(argv: string[]): Args {
         process.exit(2);
       }
       args.mode = m;
+    } else if (a === "--tokenizer") {
+      const t = rest[++i];
+      if (t === undefined) {
+        process.stderr.write("error: --tokenizer requires a value\n");
+        process.exit(2);
+      }
+      args.tokenizer = t;
     } else if (a === "--stats") {
       args.stats = true;
     } else if (a === "--pretty") {
@@ -123,27 +135,31 @@ function write(text: string, out?: string): void {
 function main(): number {
   const args = parseArgs(process.argv.slice(2));
   try {
+    const { tokenizer } = args;
     if (args.command === "encode") {
       const data = JSON.parse(read(args.input)) as JsonValue;
-      write(encode(data, { mode: args.mode }), args.output);
+      write(encode(data, { mode: args.mode, tokenizer }), args.output);
       if (args.stats) {
-        process.stderr.write(JSON.stringify(stats(data)) + "\n");
+        process.stderr.write(JSON.stringify(stats(data, { tokenizer })) + "\n");
       }
     } else if (args.command === "decode") {
       const value = decode(read(args.input));
       write(args.pretty ? JSON.stringify(value, null, 2) : JSON.stringify(value), args.output);
     } else if (args.command === "stats") {
       const data = JSON.parse(read(args.input)) as JsonValue;
-      process.stdout.write(JSON.stringify(stats(data), null, 2) + "\n");
+      process.stdout.write(JSON.stringify(stats(data, { tokenizer }), null, 2) + "\n");
     } else {
       const data = JSON.parse(read(args.input)) as JsonValue;
+      const expected = JSON.stringify(data);
       for (const mode of ["auto", "soon"] as const) {
-        if (JSON.stringify(decode(encode(data, { mode }))) !== JSON.stringify(data)) {
-          process.stderr.write(`round-trip FAILED in mode=${mode}\n`);
+        if (JSON.stringify(decode(encode(data, { mode, tokenizer }))) !== expected) {
+          const suffix = tokenizer !== undefined ? `, tokenizer=${tokenizer}` : "";
+          process.stderr.write(`round-trip FAILED in mode=${mode}${suffix}\n`);
           return 1;
         }
       }
-      process.stderr.write("round-trip OK (auto, soon)\n");
+      const suffix = tokenizer !== undefined ? ` with tokenizer=${tokenizer}` : "";
+      process.stderr.write(`round-trip OK (auto, soon)${suffix}\n`);
     }
   } catch (exc) {
     if (exc instanceof SoonError || exc instanceof SyntaxError || (exc as NodeJS.ErrnoException).code) {

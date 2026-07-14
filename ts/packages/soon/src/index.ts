@@ -14,7 +14,7 @@
 export { decode } from "./decode.js";
 export { encode, type EncodeOptions } from "./encode.js";
 export { SoonDecodeError, SoonEncodeError, SoonError } from "./errors.js";
-export { stats, type Stats } from "./stats.js";
+export { stats, type Stats, type StatsOptions } from "./stats.js";
 export type { JsonObject, JsonValue } from "./types.js";
 
 export const VERSION = "0.1.0";

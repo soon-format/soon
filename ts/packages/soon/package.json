@@ -9,9 +9,19 @@
     "url": "git+https://github.com/soon-format/soon.git",
     "directory": "ts/packages/soon"
   },
-  "keywords": ["llm", "json", "tokens", "compression", "prompt", "soon", "toon"],
+  "keywords": [
+    "llm",
+    "json",
+    "tokens",
+    "compression",
+    "prompt",
+    "soon",
+    "toon"
+  ],
   "type": "module",
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -20,10 +30,28 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist", "!dist/**/*.map"],
+  "//browser": "Redirects tokencost.js to a Node-free stub for browser bundlers (webpack/vite/rollup/esbuild honour this field). The stub keeps char-cost paths working and raises a clear SoonError on any tokenizer call, so non-Node consumers never resolve node:module.",
+  "browser": {
+    "./dist/tokencost.js": "./dist/tokencost.browser.js"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.map"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"
+  },
+  "peerDependencies": {
+    "js-tiktoken": "^1.0.21"
+  },
+  "peerDependenciesMeta": {
+    "js-tiktoken": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "js-tiktoken": "^1.0.21"
   }
 }

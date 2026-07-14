@@ -13,6 +13,7 @@ import {
   inferShape,
   serializeShape,
 } from "./shape.js";
+import { getEncoder, textCost } from "./tokencost.js";
 import type { JsonObject, JsonValue } from "./types.js";
 
 const INDENT = "  ";
@@ -21,14 +22,12 @@ const NAME_SANITIZE = /[^A-Za-z0-9_]/g;
 
 /**
  * A cost function measures a candidate encoding fragment. Defaults to
- * character length; when a tokenizer is configured (see issue #9 for TS
- * tokenizer parity) it returns real token counts. Threaded via
- * `Registry.cost` so every local decision (table vs. fallback, future
- * adaptive-block gate) agrees with the outer document-level compare in
- * `encode()`.
+ * character length; when `tokenizer` is passed it returns real BPE token
+ * counts. Threaded via `Registry.cost` so every local decision with a real
+ * alternative (table vs. inline-JSON fallback) is measured in the same
+ * unit as the outer document-level compare in `encode()`.
  */
 export type CostFn = (s: string) => number;
-const charCost: CostFn = (s) => s.length;
 
 export interface EncodeOptions {
   /**
@@ -38,9 +37,25 @@ export interface EncodeOptions {
    * - `json`: force compact JSON.
    */
   mode?: "auto" | "soon" | "json";
+  /**
+   * Name of a bundled tokenizer (e.g. `"o200k_base"`) used to measure
+   * candidate encodings in real tokens rather than characters. When set,
+   * every local cost decision inside the encoder uses token cost too, so
+   * the SOON-vs-JSON choice is made in the same unit an LLM would bill in.
+   * Requires `js-tiktoken` to be installed as a peer dependency.
+   */
+  tokenizer?: string | undefined;
 }
 
-/** Named shape declarations, deduplicated by structural signature. */
+/**
+ * Named shape declarations, deduplicated by structural signature.
+ *
+ * `peek` returns the name a subsequent `register` would assign without
+ * committing state — so the local cost estimator in `tryTable` can
+ * measure the exact string that will be emitted (including a possibly
+ * collision-suffixed name) before deciding whether the table is worth
+ * registering at all.
+ */
 class Registry {
   private readonly bySig = new Map<string, string>();
   private readonly names = new Set<string>();
@@ -55,14 +70,24 @@ class Registry {
     return this.bySig.has(sig);
   }
 
-  register(shape: Shape, hint: string): string {
-    const sig = serializeShape(shape);
-    const existing = this.bySig.get(sig);
-    if (existing !== undefined) return existing;
+  private mint(hint: string): string {
     let base = hint.replace(NAME_SANITIZE, "") || "shape";
     if (/^\d/.test(base)) base = "s" + base;
     let name = base;
     for (let i = 2; this.names.has(name); i++) name = `${base}${i}`;
+    return name;
+  }
+
+  peek(sig: string, hint: string): string {
+    const existing = this.bySig.get(sig);
+    return existing !== undefined ? existing : this.mint(hint);
+  }
+
+  register(shape: Shape, hint: string): string {
+    const sig = serializeShape(shape);
+    const existing = this.bySig.get(sig);
+    if (existing !== undefined) return existing;
+    const name = this.mint(hint);
     this.names.add(name);
     this.bySig.set(sig, name);
     this.decls.push([name, sig]);
@@ -78,14 +103,22 @@ export function encode(data: JsonValue, options: EncodeOptions = {}): string {
   }
   const cj = compactJson(data);
   if (mode === "json") return cj;
-  const cost = charCost;
+  const encoder = getEncoder(options.tokenizer);
+  // textCost's null branch already returns text.length, so we can hand it
+  // the encoder directly without a separate charCost helper.
+  const cost: CostFn = (s) => textCost(s, encoder);
   const doc = encodeSoon(data, cost);
   if (doc === null) return cj;
   if (mode === "soon") return doc;
   return cost(doc) < cost(cj) ? doc : cj;
 }
 
-function encodeSoon(data: JsonValue, cost: CostFn): string | null {
+/**
+ * Internal helper: build the SOON body (or return null if no SOON shape
+ * applies). Exported for `stats()` so it can share cost work with the
+ * auto-mode decision instead of re-tokenizing. Not part of the public API.
+ */
+export function encodeSoon(data: JsonValue, cost: CostFn): string | null {
   const reg = new Registry(cost);
   let body: string[] | null;
   if (data !== null && typeof data === "object" && !Array.isArray(data)) {
@@ -137,18 +170,35 @@ function arrayEntry(
     const head = `${pad}${kt}[${value.length}]:`;
     return [inline ? `${head} ${inline}` : head];
   }
-  const table = tryTable(value, hint, reg);
+  const headerPrefix = `${pad}${kt}[${value.length}]`;
+  const jsonLine = `${pad}${kt}: !${compactJson(value)}`;
+  const table = tryTable(value, hint, reg, headerPrefix, jsonLine);
   if (table !== null) {
     const [name, rows] = table;
-    return [`${pad}${kt}[${value.length}]<${name}>:`, ...rows];
+    return [`${headerPrefix}<${name}>:`, ...rows];
   }
-  return [`${pad}${kt}: !${compactJson(value)}`];
+  return [jsonLine];
 }
 
+/**
+ * Decide whether `value` should be emitted as a SOON table.
+ *
+ * `headerPrefix` is the caller-supplied string that will precede the
+ * `<name>:` marker in the emitted header (e.g. `` `${pad}${kt}[N]` `` for
+ * an inline array, `` `[N]` `` for a root array). `jsonLine` is the
+ * concrete JSON fallback the caller would emit if this returns null.
+ *
+ * The cost estimate tokenizes the actual emitted SOON fragment —
+ * including the header, the resolved shape name, and (when the shape is
+ * new) its `SHAPE` declaration — so the local decision agrees with what
+ * `encode()` will observe at the document level.
+ */
 function tryTable(
   value: JsonValue[],
   hint: string,
   reg: Registry,
+  headerPrefix: string,
+  jsonLine: string,
 ): [string, string[]] | null {
   if (
     value.length < 2 ||
@@ -160,12 +210,11 @@ function tryTable(
   const shape = inferShape(elements);
   const sig = serializeShape(shape);
   const rows = elements.map((el) => tuple(el, shape));
-  const declCost = reg.has(sig) ? 0 : reg.cost(`SHAPE ${hint} = ${sig}\n`);
-  // Rows are emitted joined by newlines; tokenize the joined block so token
-  // costs account for BPE merges across the newline boundaries.
-  const rowsCost = rows.length > 0 ? reg.cost(rows.join("\n") + "\n") : 0;
-  if (declCost + rowsCost >= reg.cost(compactJson(value))) return null;
-  const name = reg.register(shape, hint);
+  const name = reg.peek(sig, hint);
+  const body = `${headerPrefix}<${name}>:\n${rows.join("\n")}`;
+  const soonFragment = reg.has(sig) ? body : `SHAPE ${name} = ${sig}\n${body}`;
+  if (reg.cost(soonFragment) >= reg.cost(jsonLine)) return null;
+  reg.register(shape, hint);
   return [name, rows];
 }
 
@@ -175,10 +224,14 @@ function rootArray(value: JsonValue[], reg: Registry): string[] | null {
     const head = `[${value.length}]:`;
     return [inline ? `${head} ${inline}` : head];
   }
-  const table = tryTable(value, "item", reg);
+  // At root, the JSON fallback is the whole compact JSON of the value;
+  // there is no key/padding to prepend.
+  const headerPrefix = `[${value.length}]`;
+  const jsonLine = compactJson(value);
+  const table = tryTable(value, "item", reg, headerPrefix, jsonLine);
   if (table !== null) {
     const [name, rows] = table;
-    return [`[${value.length}]<${name}>:`, ...rows];
+    return [`${headerPrefix}<${name}>:`, ...rows];
   }
   return null;
 }

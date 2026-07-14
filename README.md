@@ -90,13 +90,17 @@ data == decode(doc)                       # True — lossless
 stats(data)                               # {"json_chars": …, "soon_chars": …, "saving": 0.604}
 
 # Real-token cost decisions (requires: pip install "soon-format[tokens]")
+# The o200k_base vocab ships inside the wheel — works offline, no network.
 encode(data, tokenizer="o200k_base")
+stats(data, tokenizer="o200k_base")       # adds json_tokens / soon_tokens
 ```
 
 ### TypeScript / JavaScript
 
 ```bash
 npm install @soon-format/soon
+# Optional: real-token cost decisions (adds ~2 MB of BPE ranks)
+npm install js-tiktoken
 ```
 
 ```ts
@@ -104,6 +108,10 @@ import { encode, decode, stats } from "@soon-format/soon";
 
 const doc = encode(data);                 // same semantics, byte-identical to Python
 const original = decode(doc);
+
+// With js-tiktoken installed, encoding and stats agree with the Python side:
+encode(data, { tokenizer: "o200k_base" });
+stats(data, { tokenizer: "o200k_base" }); // adds jsonTokens / soonTokens
 ```
 
 ### CLI (either ecosystem)
