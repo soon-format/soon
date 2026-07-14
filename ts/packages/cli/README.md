@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/soon-format/soon/main/assets/brand/social/readme-banner-dark.png">
+    <img alt="soon — shape-oriented object notation" src="https://raw.githubusercontent.com/soon-format/soon/main/assets/brand/social/readme-banner-light.png" width="720">
+  </picture>
+</p>
+
 # @soon-format/cli
 
 `npx`-runnable CLI for **SOON (Shape-Oriented Object Notation)** — lossless,
