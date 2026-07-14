@@ -13,6 +13,7 @@ import {
   inferShape,
   serializeShape,
 } from "./shape.js";
+import { getEncoder, textCost } from "./tokencost.js";
 import type { JsonObject, JsonValue } from "./types.js";
 
 const INDENT = "  ";
@@ -21,11 +22,10 @@ const NAME_SANITIZE = /[^A-Za-z0-9_]/g;
 
 /**
  * A cost function measures a candidate encoding fragment. Defaults to
- * character length; when a tokenizer is configured (see issue #9 for TS
- * tokenizer parity) it returns real token counts. Threaded via
- * `Registry.cost` so every local decision (table vs. fallback, future
- * adaptive-block gate) agrees with the outer document-level compare in
- * `encode()`.
+ * character length; when `tokenizer` is passed it returns real BPE token
+ * counts. Threaded via `Registry.cost` so every local decision (table vs.
+ * fallback, future adaptive-block gate) agrees with the outer document-level
+ * compare in `encode()`.
  */
 export type CostFn = (s: string) => number;
 const charCost: CostFn = (s) => s.length;
@@ -38,6 +38,14 @@ export interface EncodeOptions {
    * - `json`: force compact JSON.
    */
   mode?: "auto" | "soon" | "json";
+  /**
+   * Name of a `js-tiktoken` encoding (e.g. `"o200k_base"`) used to measure
+   * candidate encodings in real tokens rather than characters. When set,
+   * every local cost decision inside the encoder uses token cost too, so
+   * the SOON-vs-JSON choice is made in the same unit an LLM would bill in.
+   * Requires `js-tiktoken` to be installed as a peer dependency.
+   */
+  tokenizer?: string;
 }
 
 /** Named shape declarations, deduplicated by structural signature. */
@@ -78,7 +86,8 @@ export function encode(data: JsonValue, options: EncodeOptions = {}): string {
   }
   const cj = compactJson(data);
   if (mode === "json") return cj;
-  const cost = charCost;
+  const encoder = getEncoder(options.tokenizer);
+  const cost: CostFn = encoder !== null ? (s) => textCost(s, encoder) : charCost;
   const doc = encodeSoon(data, cost);
   if (doc === null) return cj;
   if (mode === "soon") return doc;

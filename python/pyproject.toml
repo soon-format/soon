@@ -36,6 +36,9 @@ soon = "soon_format.cli:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/soon_format"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"src/soon_format/vocab/o200k_base.tiktoken.gz" = "soon_format/vocab/o200k_base.tiktoken.gz"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 

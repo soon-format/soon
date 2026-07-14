@@ -9,9 +9,19 @@
     "url": "git+https://github.com/soon-format/soon.git",
     "directory": "ts/packages/soon"
   },
-  "keywords": ["llm", "json", "tokens", "compression", "prompt", "soon", "toon"],
+  "keywords": [
+    "llm",
+    "json",
+    "tokens",
+    "compression",
+    "prompt",
+    "soon",
+    "toon"
+  ],
   "type": "module",
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -20,10 +30,21 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist", "!dist/**/*.map"],
+  "files": [
+    "dist",
+    "!dist/**/*.map"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"
+  },
+  "peerDependencies": {
+    "js-tiktoken": "^1.0.21"
+  },
+  "peerDependenciesMeta": {
+    "js-tiktoken": {
+      "optional": true
+    }
   }
 }
