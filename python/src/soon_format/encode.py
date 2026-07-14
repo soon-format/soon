@@ -18,14 +18,21 @@ _NAME_SANITIZE = re.compile(r"[^A-Za-z0-9_]")
 
 # A cost function measures a candidate encoding fragment. Defaults to
 # character length; when a tokenizer is configured it returns real token
-# counts. Threaded via ``_Registry.cost`` so every local decision (table vs.
-# fallback, future adaptive-block gate) agrees with the outer document-level
-# compare in ``encode()``.
+# counts. Threaded via ``_Registry.cost`` so every local decision that has
+# a real alternative (table vs. inline-JSON fallback) is measured against
+# the same unit the outer document-level compare in ``encode()`` uses.
 CostFn = Callable[[str], int]
 
 
 class _Registry:
-    """Named shape declarations, deduplicated by structural signature."""
+    """Named shape declarations, deduplicated by structural signature.
+
+    ``peek`` returns the name a subsequent ``register`` would assign,
+    without committing state — so the local cost estimator in
+    ``_try_table`` can measure the exact string that will be emitted
+    (including the possibly collision-suffixed name) before deciding
+    whether the table is worth registering at all.
+    """
 
     def __init__(self, cost: CostFn) -> None:
         self.by_sig: dict[str, str] = {}
@@ -36,11 +43,7 @@ class _Registry:
     def has(self, sig: str) -> bool:
         return sig in self.by_sig
 
-    def register(self, shape: Shape, hint: str) -> str:
-        sig = serialize_shape(shape)
-        existing = self.by_sig.get(sig)
-        if existing is not None:
-            return existing
+    def _mint(self, hint: str) -> str:
         base = _NAME_SANITIZE.sub("", hint) or "shape"
         if base[0].isdigit():
             base = "s" + base
@@ -48,6 +51,18 @@ class _Registry:
         while name in self.names:
             name = f"{base}{i}"
             i += 1
+        return name
+
+    def peek(self, sig: str, hint: str) -> str:
+        existing = self.by_sig.get(sig)
+        return existing if existing is not None else self._mint(hint)
+
+    def register(self, shape: Shape, hint: str) -> str:
+        sig = serialize_shape(shape)
+        existing = self.by_sig.get(sig)
+        if existing is not None:
+            return existing
+        name = self._mint(hint)
         self.names.add(name)
         self.by_sig[sig] = name
         self.decls.append((name, sig))
@@ -129,28 +144,48 @@ def _array_entry(
         inline = ",".join(scalar_literal(x) for x in value)
         head = f"{pad}{kt}[{len(value)}]:"
         return [head + (" " + inline if inline else "")]
-    table = _try_table(value, hint, reg)
+    header_prefix = f"{pad}{kt}[{len(value)}]"
+    json_line = f"{pad}{kt}: !{compact_json(value)}"
+    table = _try_table(value, hint, reg, header_prefix, json_line)
     if table is not None:
         name, rows = table
-        return [f"{pad}{kt}[{len(value)}]<{name}>:", *rows]
-    return [f"{pad}{kt}: !{compact_json(value)}"]
+        return [f"{header_prefix}<{name}>:", *rows]
+    return [json_line]
 
 
 def _try_table(
-    value: list[Any], hint: str, reg: _Registry
+    value: list[Any],
+    hint: str,
+    reg: _Registry,
+    header_prefix: str,
+    json_line: str,
 ) -> tuple[str, list[str]] | None:
+    """Decide whether ``value`` should be emitted as a SOON table.
+
+    ``header_prefix`` is the caller-supplied string that will precede the
+    ``<name>:`` marker in the emitted header (e.g. ``"{pad}{kt}[N]"`` for
+    an inline array, ``"[N]"`` for a root array). ``json_line`` is the
+    concrete JSON fallback the caller would emit if this returns None.
+
+    The cost estimate tokenizes the actual emitted SOON fragment —
+    including the header, the resolved shape name, and (when the shape is
+    new) its ``SHAPE`` declaration — so the local decision agrees with
+    what ``encode()`` will observe at the document level.
+    """
     if len(value) < 2 or not all(isinstance(x, dict) for x in value):
         return None
     shape = infer_shape(value)
     sig = serialize_shape(shape)
     rows = [_tuple(el, shape) for el in value]
-    decl_cost = 0 if reg.has(sig) else reg.cost(f"SHAPE {hint} = {sig}\n")
-    # Rows are emitted joined by newlines; tokenize the joined block so token
-    # costs account for BPE merges across the newline boundaries.
-    rows_cost = reg.cost("\n".join(rows) + "\n") if rows else 0
-    if decl_cost + rows_cost >= reg.cost(compact_json(value)):
+    name = reg.peek(sig, hint)
+    body = f"{header_prefix}<{name}>:\n" + "\n".join(rows)
+    if reg.has(sig):
+        soon_fragment = body
+    else:
+        soon_fragment = f"SHAPE {name} = {sig}\n{body}"
+    if reg.cost(soon_fragment) >= reg.cost(json_line):
         return None
-    name = reg.register(shape, hint)
+    reg.register(shape, hint)
     return name, rows
 
 
@@ -159,10 +194,14 @@ def _root_array(value: list[Any], reg: _Registry) -> list[str] | None:
         inline = ",".join(scalar_literal(x) for x in value)
         head = f"[{len(value)}]:"
         return [head + (" " + inline if inline else "")]
-    table = _try_table(value, "item", reg)
+    # At root, the JSON fallback is the whole compact JSON of the value;
+    # there is no key/padding to prepend.
+    header_prefix = f"[{len(value)}]"
+    json_line = compact_json(value)
+    table = _try_table(value, "item", reg, header_prefix, json_line)
     if table is not None:
         name, rows = table
-        return [f"[{len(value)}]<{name}>:", *rows]
+        return [f"{header_prefix}<{name}>:", *rows]
     return None
 
 

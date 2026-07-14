@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { decode, encode, stats } from "../src/index.js";
+import { SoonError, decode, encode, stats } from "../src/index.js";
 import { getEncoder, textCost } from "../src/tokencost.js";
 
 describe("tokenizer support (o200k_base)", () => {
@@ -26,7 +26,9 @@ describe("tokenizer support (o200k_base)", () => {
   });
 
   it("encode threads the tokenizer through every local decision", () => {
-    // Same input that flips a decision under token cost on the Python side.
+    // Same input that flips the decision under token cost on the Python side.
+    // A regression that silently dropped the tokenizer would leave both docs
+    // identical, so we assert the flip — not merely round-trip validity.
     const data = {
       items: [
         { emoji: "🌟", name: "star" },
@@ -36,7 +38,9 @@ describe("tokenizer support (o200k_base)", () => {
     };
     const charDoc = encode(data);
     const tokenDoc = encode(data, { tokenizer: "o200k_base" });
-    // Round-trip both regardless of which candidate won.
+    expect(charDoc).not.toBe(tokenDoc);
+    expect(charDoc.startsWith("SHAPE items =")).toBe(true);
+    expect(tokenDoc).toBe(JSON.stringify(data));
     expect(decode(charDoc)).toEqual(data);
     expect(decode(tokenDoc)).toEqual(data);
   });
@@ -59,7 +63,28 @@ describe("tokenizer support (o200k_base)", () => {
     }
   });
 
-  it("unknown tokenizer throws a helpful error", () => {
-    expect(() => encode({ a: 1 }, { tokenizer: "not-a-real-encoding" })).toThrow(/unknown tokenizer/);
+  it("unknown tokenizer throws a helpful error naming the bundled set", () => {
+    expect(() => encode({ a: 1 }, { tokenizer: "not-a-real-encoding" })).toThrow(
+      /unknown tokenizer.*o200k_base/,
+    );
+  });
+
+  it("getEncoder(null) and getEncoder(undefined) return null (char costing)", () => {
+    expect(getEncoder(null)).toBeNull();
+    expect(getEncoder(undefined)).toBeNull();
+  });
+
+  it("textCost(null encoder) equals character length", () => {
+    expect(textCost("hello", null)).toBe(5);
+    expect(textCost("", null)).toBe(0);
+  });
+
+  it("BUNDLED gate is checked before any js-tiktoken submodule is resolved", () => {
+    // If a non-bundled name reached js-tiktoken it would either succeed
+    // (silent divergence with Python) or fail with a resolver-specific
+    // error. The BUNDLED allowlist produces a stable SoonError instead,
+    // and does so idempotently — no partial state cached across attempts.
+    expect(() => encode({}, { tokenizer: "gpt2" })).toThrow(SoonError);
+    expect(() => encode({}, { tokenizer: "gpt2" })).toThrow(/unknown tokenizer/);
   });
 });

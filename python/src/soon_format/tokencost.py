@@ -1,8 +1,12 @@
 """Cost measurement: characters by default, real tokens via tiktoken (optional).
 
 Tokenizers are loaded from BPE artefacts bundled inside the wheel — no network
-access is required at any point (see issue #9). ``tiktoken`` is still the BPE
-engine; it just never has to download.
+access is required at any point, and there is no fall-through path that could
+hit the network. ``tiktoken`` is still the BPE engine; it just never has to
+download. Encoding names outside the bundled set raise :class:`SoonError`
+rather than silently reaching for :func:`tiktoken.get_encoding` — this keeps
+Python behaviour aligned with the TypeScript side, where the analogue is
+:func:`getEncoder` throwing on unknown names.
 """
 
 from __future__ import annotations
@@ -17,7 +21,7 @@ from .errors import SoonError
 # Registry of encodings whose BPE file we ship inside the wheel. The pat_str /
 # special-tokens definitions are copied verbatim from tiktoken_ext.openai_public
 # to keep offline output byte-identical to what tiktoken.get_encoding() would
-# have produced online.
+# have produced online. ``tools/check_bundled_vocab.py`` guards against drift.
 _O200K_PAT = "|".join(
     [
         r"""[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]*[\p{Ll}\p{Lm}\p{Lo}\p{M}]+(?i:'s|'t|'re|'ve|'m|'ll|'d)?""",
@@ -39,6 +43,20 @@ _BUNDLED: dict[str, dict[str, Any]] = {
 }
 
 
+def _require_tiktoken() -> Any:
+    """Return the ``tiktoken`` module, or raise a :class:`SoonError` with a
+    single, canonical install hint. Kept as one function so the message
+    never drifts between call sites."""
+    try:
+        import tiktoken
+    except ImportError as exc:  # pragma: no cover
+        raise SoonError(
+            "tokenizer support requires tiktoken; install with: "
+            "pip install 'soon-format[tokens]'"
+        ) from exc
+    return tiktoken
+
+
 def _load_bundled_ranks(filename: str) -> dict[bytes, int]:
     """Parse a gzipped .tiktoken file into a mergeable_ranks mapping."""
     with resources.files("soon_format.vocab").joinpath(filename).open("rb") as raw:
@@ -52,13 +70,7 @@ def _load_bundled_ranks(filename: str) -> dict[bytes, int]:
 
 def _build_encoder(name: str) -> Any:
     cfg = _BUNDLED[name]
-    try:
-        import tiktoken
-    except ImportError as exc:  # pragma: no cover
-        raise SoonError(
-            "tokenizer support requires tiktoken; install with: "
-            "pip install 'soon-format[tokens]'"
-        ) from exc
+    tiktoken = _require_tiktoken()
     return tiktoken.Encoding(
         name=name,
         pat_str=cfg["pat_str"],
@@ -75,26 +87,21 @@ _CACHE: dict[str, Any] = {}
 def get_encoder(name: str | None) -> Any | None:
     """Return an encoder for *name*, or None for character costing.
 
-    Bundled encodings (currently ``o200k_base``) load from the wheel with no
-    network access. Any other name is delegated to ``tiktoken.get_encoding``,
-    which may hit the network on first use.
+    Raises :class:`SoonError` if *name* is not one of the bundled encodings
+    (see :data:`_BUNDLED`). This keeps the module strictly offline and
+    matches the TypeScript side's ``getEncoder`` behaviour.
     """
     if name is None:
         return None
     cached = _CACHE.get(name)
     if cached is not None:
         return cached
-    if name in _BUNDLED:
-        encoder = _build_encoder(name)
-    else:
-        try:
-            import tiktoken
-        except ImportError as exc:  # pragma: no cover
-            raise SoonError(
-                "tokenizer support requires tiktoken; install with: "
-                "pip install 'soon-format[tokens]'"
-            ) from exc
-        encoder = tiktoken.get_encoding(name)
+    if name not in _BUNDLED:
+        supported = ", ".join(sorted(_BUNDLED)) or "(none)"
+        raise SoonError(
+            f"unknown tokenizer {name!r}; supported (bundled offline): {supported}"
+        )
+    encoder = _build_encoder(name)
     _CACHE[name] = encoder
     return encoder
 

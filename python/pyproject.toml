@@ -28,7 +28,16 @@ Issues = "https://github.com/soon-format/soon/issues"
 
 [project.optional-dependencies]
 tokens = ["tiktoken>=0.5"]
-dev = ["pytest>=7", "hypothesis>=6", "mypy>=1.8", "ruff>=0.4", "tiktoken>=0.5"]
+dev = [
+    "pytest>=7",
+    "hypothesis>=6",
+    "mypy>=1.8",
+    "ruff>=0.4",
+    "tiktoken>=0.5",
+    # Benchmark comparison targets — benchmarks/run.py hard-fails without them.
+    "pyyaml>=6",
+    "toon-py",
+]
 
 [project.scripts]
 soon = "soon_format.cli:main"

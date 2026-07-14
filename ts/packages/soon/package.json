@@ -30,6 +30,10 @@
       "default": "./dist/index.js"
     }
   },
+  "//browser": "Redirects tokencost.js to a Node-free stub for browser bundlers (webpack/vite/rollup/esbuild honour this field). The stub keeps char-cost paths working and raises a clear SoonError on any tokenizer call, so non-Node consumers never resolve node:module.",
+  "browser": {
+    "./dist/tokencost.js": "./dist/tokencost.browser.js"
+  },
   "files": [
     "dist",
     "!dist/**/*.map"
@@ -46,5 +50,8 @@
     "js-tiktoken": {
       "optional": true
     }
+  },
+  "devDependencies": {
+    "js-tiktoken": "^1.0.21"
   }
 }

@@ -4,6 +4,7 @@
     "chars",
     "tokens"
   ],
+  "decision_unit": "tokens",
   "results": [
     {
       "dataset": "L1 flat config",
@@ -13,12 +14,14 @@
           "json": 113,
           "json-pretty": 138,
           "yaml": 100,
+          "toon": 99,
           "soon": 113
         },
         "tokens": {
           "json": 36,
           "json-pretty": 54,
           "yaml": 38,
+          "toon": 37,
           "soon": 36
         }
       }
@@ -31,12 +34,14 @@
           "json": 6900,
           "json-pretty": 11908,
           "yaml": 6796,
+          "toon": 2828,
           "soon": 2858
         },
         "tokens": {
           "json": 2162,
           "json-pretty": 3966,
           "yaml": 2850,
+          "toon": 1255,
           "soon": 1163
         }
       }
@@ -49,12 +54,14 @@
           "json": 3057,
           "json-pretty": 5586,
           "yaml": 3844,
+          "toon": 2860,
           "soon": 2862
         },
         "tokens": {
           "json": 1442,
           "json-pretty": 2461,
           "yaml": 2339,
+          "toon": 1428,
           "soon": 1430
         }
       }
@@ -67,12 +74,14 @@
           "json": 2497,
           "json-pretty": 5327,
           "yaml": 2729,
+          "toon": 2704,
           "soon": 1083
         },
         "tokens": {
           "json": 863,
           "json-pretty": 1601,
           "yaml": 1095,
+          "toon": 908,
           "soon": 518
         }
       }
@@ -85,12 +94,14 @@
           "json": 24254,
           "json-pretty": 51456,
           "yaml": 26497,
+          "toon": 26612,
           "soon": 9561
         },
         "tokens": {
           "json": 8301,
           "json-pretty": 15398,
           "yaml": 10547,
+          "toon": 8869,
           "soon": 4668
         }
       }
@@ -103,12 +114,14 @@
           "json": 5660,
           "json-pretty": 15662,
           "yaml": 7712,
+          "toon": 16900,
           "soon": 2481
         },
         "tokens": {
           "json": 1968,
           "json-pretty": 3432,
           "yaml": 2390,
+          "toon": 2479,
           "soon": 1124
         }
       }
@@ -121,12 +134,14 @@
           "json": 9801,
           "json-pretty": 18684,
           "yaml": 9951,
+          "toon": 11983,
           "soon": 5488
         },
         "tokens": {
           "json": 3332,
           "json-pretty": 6161,
           "yaml": 4189,
+          "toon": 4336,
           "soon": 2316
         }
       }
@@ -139,12 +154,14 @@
           "json": 2950,
           "json-pretty": 6561,
           "yaml": 3142,
+          "toon": 3694,
           "soon": 1784
         },
         "tokens": {
           "json": 1015,
           "json-pretty": 2178,
           "yaml": 1455,
+          "toon": 1468,
           "soon": 811
         }
       }
@@ -157,12 +174,14 @@
           "json": 1412,
           "json-pretty": 6458,
           "yaml": 2007,
+          "toon": 1239,
           "soon": 1412
         },
         "tokens": {
           "json": 681,
           "json-pretty": 1685,
           "yaml": 1040,
+          "toon": 539,
           "soon": 681
         }
       }
