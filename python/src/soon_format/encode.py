@@ -51,6 +51,7 @@ class _Registry:
         labeled: bool = False,
         shape_hint_rows: int | None = None,
         row_count_guardrail: bool = True,
+        elide: bool = False,
     ) -> None:
         self.by_sig: dict[str, str] = {}
         self.names: set[str] = set()
@@ -59,6 +60,7 @@ class _Registry:
         self.labeled: bool = labeled
         self.shape_hint_rows: int | None = shape_hint_rows
         self.row_count_guardrail: bool = row_count_guardrail
+        self.elide: bool = elide
 
     def has(self, sig: str) -> bool:
         return sig in self.by_sig
@@ -77,8 +79,7 @@ class _Registry:
         existing = self.by_sig.get(sig)
         return existing if existing is not None else self._mint(hint)
 
-    def register(self, shape: Shape, hint: str) -> str:
-        sig = serialize_shape(shape)
+    def register(self, sig: str, hint: str) -> str:
         existing = self.by_sig.get(sig)
         if existing is not None:
             return existing
@@ -96,6 +97,7 @@ def encode(
     tokenizer: str | None = None,
     shape_hint_rows: int | None = None,
     row_count_guardrail: bool = True,
+    elide: bool = False,
 ) -> str:
     """Encode *data* (a JSON-compatible value) as a SOON document.
 
@@ -124,6 +126,12 @@ def encode(
     for the accuracy harness — measures whether stating the row count
     actually helps LLMs. Primitive arrays are unaffected (their length
     is inherent to the inline list).
+
+    ``elide`` (v0.2, SPEC §6.2): when True, required scalar columns
+    where the mode value covers ≥80% of rows are dropped from the shape
+    body and declared as ``| defaults: k=v`` in the SHAPE decl.
+    Exceptional rows carry ``+k=v`` overrides. The per-array cost gate
+    picks the winner between elided and non-elided candidates.
     """
     if mode not in ("auto", "soon", "labeled", "json"):
         raise ValueError(f"unknown mode: {mode!r}")
@@ -141,6 +149,7 @@ def encode(
         labeled=labeled,
         shape_hint_rows=shape_hint_rows,
         row_count_guardrail=row_count_guardrail,
+        elide=elide,
     )
     if doc is None:
         return cj
@@ -155,12 +164,14 @@ def _encode_soon(
     labeled: bool = False,
     shape_hint_rows: int | None = None,
     row_count_guardrail: bool = True,
+    elide: bool = False,
 ) -> str | None:
     reg = _Registry(
         cost,
         labeled=labeled,
         shape_hint_rows=shape_hint_rows,
         row_count_guardrail=row_count_guardrail,
+        elide=elide,
     )
     body: list[str] | None
     if isinstance(data, dict):
@@ -218,6 +229,9 @@ def _array_entry(
     return [json_line]
 
 
+ELIDE_THRESHOLD = 0.8
+
+
 def _try_table(
     value: list[Any],
     hint: str,
@@ -240,22 +254,81 @@ def _try_table(
     if len(value) < 2 or not all(isinstance(x, dict) for x in value):
         return None
     shape = infer_shape(value)
-    sig = serialize_shape(shape)
-    rows = [_tuple(el, shape, reg.labeled) for el in value]
-    name = reg.peek(sig, hint)
-    rows = _intersperse_hints(rows, name, sig, reg.shape_hint_rows)
-    # Labeled and shape-hint mode are accuracy-insurance variants: the
-    # user opted in precisely to get labeled/hinted tables, so per-array
-    # JSON fallback is skipped. Never-worse compare against compact JSON
-    # still applies at the document level in ``encode()``.
+    base_rows = [_tuple(el, shape, reg.labeled) for el in value]
+    candidates: list[tuple[str, list[str]]] = [(serialize_shape(shape), base_rows)]
+    if reg.elide:
+        elided = _elide_candidate(value, shape, reg.labeled)
+        if elided is not None:
+            candidates.append(elided)
+    # Local cost gate + winner selection. Labeled and shape-hint modes
+    # bypass the JSON fallback comparison; the user opted in precisely
+    # to get these forms.
     bypass = reg.labeled or reg.shape_hint_rows is not None
-    if not bypass:
-        body = f"{header_prefix}<{name}>:\n" + "\n".join(rows)
-        soon_fragment = body if reg.has(sig) else f"SHAPE {name} = {sig}\n{body}"
-        if reg.cost(soon_fragment) >= reg.cost(json_line):
-            return None
-    reg.register(shape, hint)
-    return name, rows
+    best: tuple[str, list[str], int, str] | None = None  # (sig, rows, cost, body)
+    for cand_sig, cand_rows in candidates:
+        cand_name = reg.peek(cand_sig, hint)
+        cand_rows_hinted = _intersperse_hints(cand_rows, cand_name, cand_sig, reg.shape_hint_rows)
+        body = f"{header_prefix}<{cand_name}>:\n" + "\n".join(cand_rows_hinted)
+        fragment = body if reg.has(cand_sig) else f"SHAPE {cand_name} = {cand_sig}\n{body}"
+        c = reg.cost(fragment)
+        if best is None or c < best[2]:
+            best = (cand_sig, cand_rows_hinted, c, body)
+    assert best is not None
+    sig, rows, fragment_cost, _ = best
+    if not bypass and fragment_cost >= reg.cost(json_line):
+        return None
+    reg.register(sig, hint)
+    return reg.peek(sig, hint), rows
+
+
+def _elide_candidate(
+    value: list[dict[str, Any]], shape: Shape, labeled: bool
+) -> tuple[str, list[str]] | None:
+    """Compute the elided-shape variant, or ``None`` if nothing qualifies.
+
+    A required scalar field qualifies for elision iff its most common
+    value appears in ``ceil(ELIDE_THRESHOLD * n)`` or more rows. Optional
+    fields never qualify — dropping them would collapse the ``absent`` vs
+    ``defaulted`` distinction.
+    """
+    n = len(value)
+    from collections import Counter
+
+    threshold = -(-int(ELIDE_THRESHOLD * 100) * n // 100)  # ceil(0.8 * n)
+    defaults: dict[str, Any] = {}
+    for f in shape.fields:
+        if f.optional or f.kind != SCALAR:
+            continue
+        # Hashable check: skip fields whose values include unhashable
+        # types (shouldn't happen for scalars, but be defensive).
+        try:
+            counts = Counter(row.get(f.name) for row in value)
+        except TypeError:
+            continue
+        mode_val, mode_count = counts.most_common(1)[0]
+        if mode_count >= threshold:
+            defaults[f.name] = mode_val
+    if not defaults:
+        return None
+    reduced_fields = [f for f in shape.fields if f.name not in defaults]
+    reduced = Shape(reduced_fields)
+    reduced_sig_body = serialize_shape(reduced)
+    defaults_clause = ",".join(
+        f"{field_name_token(k)}={scalar_literal(v)}" for k, v in defaults.items()
+    )
+    sig = f"{reduced_sig_body} | defaults: {defaults_clause}"
+    rows: list[str] = []
+    for row in value:
+        base = _tuple(row, reduced, labeled)
+        overrides: list[str] = []
+        for k, default_val in defaults.items():
+            if row.get(k) != default_val:
+                overrides.append(f"+{field_name_token(k)}={scalar_literal(row[k])}")
+        if overrides:
+            rows.append(base + " " + " ".join(overrides))
+        else:
+            rows.append(base)
+    return sig, rows
 
 
 def _intersperse_hints(
