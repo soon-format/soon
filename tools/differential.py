@@ -18,6 +18,11 @@ sys.path.insert(0, str(ROOT / "python" / "src"))
 
 from soon_format import encode  # noqa: E402
 
+# Modes both implementations agree on. v0.2 mechanisms (``labeled``, and
+# later ELIDE/REF) land in Python first per SPEC §6.1; TS catches up in
+# a follow-up, at which point the mode is added here.
+_V01_MODES = {"auto", "soon", "json"}
+
 NODE_SNIPPET = """
 const { encode } = await import(new URL("../ts/packages/soon/dist/index.js", import.meta.url));
 const { readFileSync } = await import("node:fs");
@@ -31,6 +36,8 @@ def main() -> int:
     for f in sorted((ROOT / "conformance" / "encode").glob("*.json")):
         fixture = json.loads(f.read_text(encoding="utf-8"))
         opts = fixture.get("options", {})
+        if opts.get("mode", "auto") not in _V01_MODES:
+            continue
         cases.append({"name": f.stem, "input": fixture["input"], "options": opts})
     for f in sorted((ROOT / "conformance" / "roundtrip").glob("*.json")):
         fixture = json.loads(f.read_text(encoding="utf-8"))

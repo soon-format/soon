@@ -141,6 +141,37 @@ field-value = "_"                        ; absent (optional fields only)
   (`!null`), so raw `null` (value present) is distinguishable from field
   omission.
 
+### 6.1 Labeled tuples (v0.2)
+
+Encoders MAY emit tuples with explicit field labels
+(`(id=1,customer=(name=Ada,city=Boulder))`) when `mode="labeled"` is
+requested. Labeled tuples exist as an accuracy-insurance variant for LLM
+retrieval; per-array table-vs-fallback decisions still follow the local
+cost model (§7).
+
+Grammar:
+
+```
+labeled-tuple = "(" [labeled-field ("," labeled-field)*] ")"
+labeled-field = field-name "=" field-value
+```
+
+Rules:
+
+- The label MUST equal a `field-name` in the declared shape.
+- Labels MUST NOT repeat within a tuple.
+- Fields MAY appear in any order and MAY be omitted; a required field
+  that is absent is a decode error.
+- `_` MUST NOT appear inside a labeled tuple — omission expresses
+  absence.
+- Nested object, table, and primitive-array fields carry the same
+  labeled/positional convention as their enclosing tuple.
+
+Decoders MUST accept both forms. A tuple is labeled iff the first
+non-whitespace token after `(` matches `field-name "="` for some field
+of the declared shape; otherwise it is positional. Empty tuples `()`
+are only legal in labeled form (all fields optional).
+
 ## 7. Shape inference (encoding)
 
 For an array where every element is an object and length ≥ 2, encoders

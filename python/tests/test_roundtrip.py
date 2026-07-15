@@ -36,7 +36,7 @@ records = st.lists(
 @settings(max_examples=300, deadline=None)
 @given(json_values)
 def test_roundtrip_arbitrary_json(value):
-    for mode in ("auto", "soon"):
+    for mode in ("auto", "soon", "labeled"):
         assert decode(encode(value, mode=mode)) == value
 
 
@@ -44,5 +44,5 @@ def test_roundtrip_arbitrary_json(value):
 @given(records)
 def test_roundtrip_shaped_records(rows):
     value = {"rows": rows}
-    for mode in ("auto", "soon"):
+    for mode in ("auto", "soon", "labeled"):
         assert decode(encode(value, mode=mode)) == value

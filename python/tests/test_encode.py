@@ -189,3 +189,92 @@ def test_tokenizer_flips_local_decision():
 def test_tokenizer_deterministic():
     pytest.importorskip("tiktoken")
     assert encode(HIKES, tokenizer="o200k_base") == encode(HIKES, tokenizer="o200k_base")
+
+
+def test_labeled_mode_golden():
+    doc = encode(HIKES, mode="labeled")
+    assert doc == (
+        "SHAPE hikes = {id,name,km,sunny}\n"
+        "context:\n"
+        "  task: Our favorite hikes together\n"
+        "  location: Boulder\n"
+        "friends[3]: ana,luis,sam\n"
+        "hikes[3]<hikes>:\n"
+        "(id=1,name=Blue Lake Trail,km=7.5,sunny=true)\n"
+        "(id=2,name=Ridge Overlook,km=9.2,sunny=false)\n"
+        "(id=3,name=Wildflower Loop,km=5.1,sunny=true)"
+    )
+    assert decode(doc) == HIKES
+
+
+def test_labeled_mode_optional_omitted():
+    data = {
+        "users": [
+            {"id": 1, "name": "Ada", "email": "ada@x.co"},
+            {"id": 2, "name": "Linus"},
+            {"id": 3, "name": "Grace", "email": "grace@x.co"},
+            {"id": 4, "name": "Alan"},
+            {"id": 5, "name": "Barbara", "email": "b@x.co"},
+        ]
+    }
+    doc = encode(data, mode="labeled")
+    assert "(id=2,name=Linus)" in doc
+    assert "(id=4,name=Alan)" in doc
+    assert "email=" in doc
+    assert "_" not in doc.split("\n", 1)[1]  # no positional sentinel in body
+    assert decode(doc) == data
+
+
+def test_labeled_mode_nested_and_tables():
+    data = {
+        "orders": [
+            {
+                "id": 1,
+                "customer": {"name": "Ada", "city": "Boulder"},
+                "items": [{"sku": "A1", "qty": 2}, {"sku": "B2", "qty": 1}],
+            },
+            {
+                "id": 2,
+                "customer": {"name": "Linus", "city": "Helsinki"},
+                "items": [{"sku": "A1", "qty": 3}, {"sku": "C3", "qty": 5}],
+            },
+            {
+                "id": 3,
+                "customer": {"name": "Grace", "city": "Arlington"},
+                "items": [{"sku": "A1", "qty": 1}, {"sku": "B2", "qty": 2}],
+            },
+        ]
+    }
+    doc = encode(data, mode="labeled")
+    assert "customer=(name=Ada,city=Boulder)" in doc
+    assert "items=[(sku=A1,qty=2),(sku=B2,qty=1)]" in doc
+    assert decode(doc) == data
+
+
+def test_labeled_mode_rejects_underscore():
+    from soon_format import SoonDecodeError
+
+    doc = "SHAPE r = {?a,?b}\nrows[1]<r>:\n(a=1,_)"
+    with pytest.raises(SoonDecodeError):
+        decode(doc)
+
+
+def test_labeled_mode_unknown_field_rejected():
+    from soon_format import SoonDecodeError
+
+    doc = "SHAPE r = {id,name}\nrows[1]<r>:\n(id=1,name=Ada,extra=oops)"
+    with pytest.raises(SoonDecodeError):
+        decode(doc)
+
+
+def test_labeled_mode_missing_required_rejected():
+    from soon_format import SoonDecodeError
+
+    doc = "SHAPE r = {id,name}\nrows[1]<r>:\n(id=1)"
+    with pytest.raises(SoonDecodeError):
+        decode(doc)
+
+
+def test_labeled_mode_unknown_mode_rejected():
+    with pytest.raises(ValueError):
+        encode({"x": 1}, mode="not_a_mode")

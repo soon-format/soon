@@ -16,6 +16,7 @@ SHAPE_DECL = re.compile(r"SHAPE ([A-Za-z_][A-Za-z0-9_]*) = (\{.*\})")
 ROOT_ARRAY = re.compile(r"\[(\d+)\](?:<([A-Za-z_][A-Za-z0-9_]*)>)?:(.*)")
 ENTRY_ARRAY = re.compile(r"\[(\d+)\](?:<([A-Za-z_][A-Za-z0-9_]*)>)?:(.*)")
 KEY_TOKEN = re.compile(r"[A-Za-z0-9_\-]+")
+FIELD_LABEL = re.compile(r"([A-Za-z0-9_\-]+)=")
 _MISSING = object()
 
 
@@ -216,6 +217,12 @@ class _TupleParser:
     def _tuple(self, shape: Shape) -> dict[str, JsonValue]:
         self._skip_ws()
         self._expect("(")
+        # Peek for labeled form (SPEC §6.2). Empty ``()`` is only legal
+        # in labeled mode (all-optional shape); positional grammar requires
+        # a value per field.
+        self._skip_ws()
+        if self._peek() == ")" or self._is_labeled_head(shape):
+            return self._labeled_tuple(shape)
         out: dict[str, JsonValue] = {}
         for idx, f in enumerate(shape.fields):
             if idx:
@@ -226,6 +233,70 @@ class _TupleParser:
                 out[f.name] = value
         self._skip_ws()
         self._expect(")")
+        return out
+
+    def _is_labeled_head(self, shape: Shape) -> bool:
+        """True iff the next token is a shape field name followed by ``=``.
+
+        Accepts both bare tokens (``foo=``) and quoted names (``")="=``)
+        for non-token keys. Positional tuple values never start with a
+        field name followed by ``=``: scalars matching a shape field name
+        would still be followed by ``,``/``)`` boundary chars, not ``=``.
+        """
+        name, end = self._peek_label_name()
+        if name is None or end >= len(self.s) or self.s[end] != "=":
+            return False
+        return any(f.name == name for f in shape.fields)
+
+    def _peek_label_name(self) -> tuple[str | None, int]:
+        if self._peek() == '"':
+            try:
+                value, end = _json_decoder.raw_decode(self.s, self.i)
+            except ValueError:
+                return None, self.i
+            if not isinstance(value, str):
+                return None, self.i
+            return value, end
+        m = FIELD_LABEL.match(self.s, self.i)
+        if not m:
+            return None, self.i
+        # FIELD_LABEL captures the name-plus-``=``; return just the name and
+        # the position of the ``=`` so the caller can validate it.
+        return m.group(1), m.start() + len(m.group(1))
+
+    def _labeled_tuple(self, shape: Shape) -> dict[str, JsonValue]:
+        by_name = {f.name: f for f in shape.fields}
+        out: dict[str, JsonValue] = {}
+        first = True
+        while True:
+            self._skip_ws()
+            if first and self._peek() == ")":
+                self.i += 1
+                break
+            if not first:
+                self._expect(",")
+                self._skip_ws()
+            name, end = self._peek_label_name()
+            if name is None or end >= len(self.s) or self.s[end] != "=":
+                raise self._err("expected labeled field 'name='")
+            self.i = end + 1
+            f = by_name.get(name)
+            if f is None:
+                raise self._err(f"unknown field {name!r} in labeled tuple")
+            if name in out:
+                raise self._err(f"duplicate labeled field {name!r}")
+            value = self._field_value(f)
+            if value is _MISSING:
+                raise self._err(f"'_' not allowed for labeled field {name!r}")
+            out[name] = value
+            first = False
+            self._skip_ws()
+            if self._peek() == ")":
+                self.i += 1
+                break
+        for f in shape.fields:
+            if not f.optional and f.name not in out:
+                raise self._err(f"missing required field {f.name!r} in labeled tuple")
         return out
 
     def _field_value(self, f: Field) -> Any:
