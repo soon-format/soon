@@ -13,6 +13,8 @@ from .shape import OBJECT, PARRAY, TABLE, Field, Shape, ShapeParser
 _json_decoder = json.JSONDecoder()
 
 SHAPE_DECL = re.compile(r"SHAPE ([A-Za-z_][A-Za-z0-9_]*) = (.*)")
+REF_DECL = re.compile(r"REF &([A-Za-z_][A-Za-z0-9_]*) = (.*)")
+REF_NAME = re.compile(r"&([A-Za-z_][A-Za-z0-9_]*)")
 DEFAULTS_PREFIX = " | defaults: "
 ROOT_ARRAY = re.compile(r"\[(\d*)\](?:<([A-Za-z_][A-Za-z0-9_]*)>)?:(.*)")
 ENTRY_ARRAY = re.compile(r"\[(\d*)\](?:<([A-Za-z_][A-Za-z0-9_]*)>)?:(.*)")
@@ -39,18 +41,31 @@ class _Parser:
         self.i = 0
         self.shapes: dict[str, Shape] = {}
         self.defaults: dict[str, dict[str, JsonValue]] = {}
+        # REF text is stored raw and parsed lazily at use site (§6.3):
+        # the enclosing OBJECT field supplies the shape.
+        self.refs: dict[str, str] = {}
 
     def parse(self) -> JsonValue:
         if not any(line.strip() for line in self.lines):
             raise SoonDecodeError("empty document")
         while self.i < len(self.lines):
-            m = SHAPE_DECL.fullmatch(self.lines[self.i])
-            if not m:
+            line = self.lines[self.i]
+            shape_m = SHAPE_DECL.fullmatch(line)
+            ref_m = REF_DECL.fullmatch(line) if shape_m is None else None
+            if shape_m is not None:
+                name = shape_m.group(1)
+                if name in self.shapes:
+                    raise SoonDecodeError(f"duplicate shape declaration: {name}")
+                self.shapes[name], self.defaults[name] = self._parse_shape_decl(
+                    shape_m.group(2)
+                )
+            elif ref_m is not None:
+                name = ref_m.group(1)
+                if name in self.refs:
+                    raise SoonDecodeError(f"duplicate REF declaration: {name}")
+                self.refs[name] = ref_m.group(2)
+            else:
                 break
-            name = m.group(1)
-            if name in self.shapes:
-                raise SoonDecodeError(f"duplicate shape declaration: {name}")
-            self.shapes[name], self.defaults[name] = self._parse_shape_decl(m.group(2))
             self.i += 1
         self._skip_blanks()
         if self.i >= len(self.lines):
@@ -177,7 +192,7 @@ class _Parser:
                     if not line.startswith("("):
                         break
                     self.i += 1
-                    rows.append(_parse_row_with_defaults(line, self.i, shape, defaults))
+                    rows.append(_parse_row_with_defaults(line, self.i, shape, defaults, self.refs))
                 return rows
             n = int(n_raw)
             for _ in range(n):
@@ -189,7 +204,7 @@ class _Parser:
                     )
                 row = self.lines[self.i]
                 self.i += 1
-                rows.append(_parse_row_with_defaults(row, self.i, shape, defaults))
+                rows.append(_parse_row_with_defaults(row, self.i, shape, defaults, self.refs))
             return rows
         # Primitive array — N is required (values are inlined on the header).
         if n_raw == "":
@@ -251,9 +266,10 @@ def _parse_row_with_defaults(
     line_no: int,
     shape: Shape,
     defaults: dict[str, JsonValue],
+    refs: dict[str, str] | None = None,
 ) -> dict[str, JsonValue]:
     """Parse a table row, then apply any ELIDE overrides + defaults hydration."""
-    tp = _TupleParser(row, line_no)
+    tp = _TupleParser(row, line_no, refs)
     tuple_value = tp._tuple(shape)
     overrides: dict[str, JsonValue] = {}
     while tp.i < len(tp.s):
@@ -312,10 +328,16 @@ def _full_json(text: str, what: str) -> JsonValue:
 class _TupleParser:
     """Cursor-based parser for row tuples and inline scalar lists (SPEC §6)."""
 
-    def __init__(self, s: str, line_no: int = 0) -> None:
+    def __init__(
+        self,
+        s: str,
+        line_no: int = 0,
+        refs: dict[str, str] | None = None,
+    ) -> None:
         self.s = s
         self.i = 0
         self.line_no = line_no
+        self.refs = refs or {}
 
     def _err(self, msg: str) -> SoonDecodeError:
         return SoonDecodeError(f"line {self.line_no}: {msg} (at column {self.i + 1})")
@@ -453,9 +475,29 @@ class _TupleParser:
             if f.kind != OBJECT or f.shape is None:
                 raise self._err(f"unexpected tuple for field {f.name!r}")
             return self._tuple(f.shape)
+        if c == "&":
+            if f.kind != OBJECT or f.shape is None:
+                raise self._err(f"unexpected REF for field {f.name!r}")
+            return self._ref_value(f)
         if c == "[":
             return self._list_value(f)
         return self._scalar_token()
+
+    def _ref_value(self, f: Field) -> Any:
+        import copy
+
+        m = REF_NAME.match(self.s, self.i)
+        if not m:
+            raise self._err("malformed REF use")
+        name = m.group(1)
+        if name not in self.refs:
+            raise self._err(f"unknown REF: {name!r}")
+        self.i = m.end()
+        assert f.shape is not None
+        # Re-parse the ref text under the field's OBJECT shape. Deep-copy
+        # so each row gets an independent value (SPEC §6.3).
+        inner = _TupleParser(self.refs[name], self.line_no, self.refs)._tuple(f.shape)
+        return copy.deepcopy(inner)
 
     def _list_value(self, f: Field) -> list[JsonValue]:
         self._expect("[")

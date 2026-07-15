@@ -453,6 +453,104 @@ def test_decoder_rejects_default_colliding_with_field():
         decode(doc)
 
 
+def _shared_office_employees(n_hq: int, n_other: int) -> dict:
+    return {
+        "employees": [
+            {"id": i + 1, "name": f"emp{i+1}",
+             "office": {"city": "San Francisco", "zip": "94105"}}
+            for i in range(n_hq)
+        ] + [
+            {"id": n_hq + i + 1, "name": f"emp{n_hq+i+1}",
+             "office": {"city": "Helsinki", "zip": "00100"}}
+            for i in range(n_other)
+        ]
+    }
+
+
+def test_ref_hoists_repeated_subtree():
+    data = _shared_office_employees(10, 1)
+    doc = encode(data, mode="soon", ref=True)
+    assert "REF &office = (San Francisco," in doc
+    assert doc.count("&office") == 11  # 1 decl + 10 uses
+    assert "(11,emp11,(Helsinki," in doc  # non-shared row emits inline
+    assert decode(doc) == data
+
+
+def test_ref_off_by_default():
+    data = _shared_office_employees(10, 1)
+    doc = encode(data, mode="soon")
+    assert "REF " not in doc
+    assert decode(doc) == data
+
+
+def test_ref_not_applied_when_no_repeats():
+    data = {
+        "orders": [
+            {"id": i + 1, "customer": {"name": f"c{i+1}", "city": "X"}}
+            for i in range(5)
+        ]
+    }
+    doc = encode(data, mode="soon", ref=True)
+    assert "REF " not in doc
+    assert decode(doc) == data
+
+
+def test_ref_composes_with_labeled():
+    data = _shared_office_employees(10, 1)
+    doc = encode(data, mode="labeled", ref=True)
+    assert "REF &office = " in doc
+    assert "office=&office" in doc
+    assert decode(doc) == data
+
+
+def test_ref_deep_copy_isolation():
+    # Mutating one row's decoded value must not affect others.
+    data = _shared_office_employees(3, 0)
+    doc = encode(data, mode="soon", ref=True)
+    got = decode(doc)
+    got["employees"][0]["office"]["city"] = "MUTATED"
+    assert got["employees"][1]["office"]["city"] == "San Francisco"
+
+
+def test_ref_unknown_reference_rejected():
+    from soon_format import SoonDecodeError
+
+    doc = (
+        "SHAPE r = {id,customer:{name}}\n"
+        "rows[1]<r>:\n"
+        "(1,&nowhere)"
+    )
+    with pytest.raises(SoonDecodeError):
+        decode(doc)
+
+
+def test_ref_duplicate_decl_rejected():
+    from soon_format import SoonDecodeError
+
+    doc = (
+        "SHAPE r = {id,customer:{name}}\n"
+        "REF &x = (Ada)\n"
+        "REF &x = (Linus)\n"
+        "rows[1]<r>:\n"
+        "(1,&x)"
+    )
+    with pytest.raises(SoonDecodeError):
+        decode(doc)
+
+
+def test_ref_cost_gate_rejects_tiny_promotion():
+    # Sub-tree tiny (single 1-char scalar) and count small — REF overhead
+    # exceeds savings. Encoder must NOT promote.
+    data = {
+        "rows": [
+            {"id": i + 1, "meta": {"a": 1}} for i in range(3)
+        ]
+    }
+    doc = encode(data, mode="soon", ref=True)
+    assert "REF " not in doc
+    assert decode(doc) == data
+
+
 def test_comment_lines_ignored_by_decoder():
     # A hand-written comment between entries and inside a table.
     doc = (

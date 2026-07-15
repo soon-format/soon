@@ -1,0 +1,17 @@
+{
+  "input": {
+    "employees": [
+      {"id": 1, "name": "Ada", "office": {"city": "San Francisco", "zip": "94105"}},
+      {"id": 2, "name": "Linus", "office": {"city": "San Francisco", "zip": "94105"}},
+      {"id": 3, "name": "Grace", "office": {"city": "San Francisco", "zip": "94105"}},
+      {"id": 4, "name": "Alan", "office": {"city": "San Francisco", "zip": "94105"}},
+      {"id": 5, "name": "Ken", "office": {"city": "San Francisco", "zip": "94105"}},
+      {"id": 6, "name": "Denis", "office": {"city": "Helsinki", "zip": "00100"}}
+    ]
+  },
+  "options": {
+    "mode": "soon",
+    "ref": true
+  },
+  "expected": "SHAPE employees = {id,name,office:{city,zip}}\nREF &office = (San Francisco,\"94105\")\nemployees[6]<employees>:\n(1,Ada,&office)\n(2,Linus,&office)\n(3,Grace,&office)\n(4,Alan,&office)\n(5,Ken,&office)\n(6,Denis,(Helsinki,\"00100\"))"
+}
