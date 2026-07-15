@@ -1,0 +1,71 @@
+name: Retrieval accuracy
+
+on:
+  schedule:
+    # Nightly at 06:00 UTC — mock provider only, verifies harness plumbing.
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      providers:
+        description: |
+          Space-separated list of provider:model ids to run against real APIs.
+          Defaults to the three-tier reference set. Requires the matching
+          repo secrets: OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY.
+        required: false
+        default: "openai:gpt-5-nano anthropic:claude-haiku-4-5-20251001 google:gemini-3-flash-preview"
+      dry_run:
+        description: "Cap to 10 questions per provider (cheap smoke test)."
+        required: false
+        default: "false"
+
+permissions:
+  contents: read
+
+jobs:
+  mock-smoke:
+    name: Mock plumbing (nightly)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install -e "python[dev]"
+      - name: Mock harness end-to-end
+        run: python3 benchmarks/accuracy/run.py --provider mock:fixture
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: accuracy-results-mock-${{ github.run_id }}
+          path: benchmarks/accuracy/results/
+
+  full-run:
+    name: Real providers (manual)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install -e "python[dev]" openai anthropic google-genai
+      - name: Full accuracy run
+        run: |
+          set -eux
+          providers=(${{ github.event.inputs.providers }})
+          args=()
+          for p in "${providers[@]}"; do args+=(--provider "$p"); done
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          python3 benchmarks/accuracy/run.py "${args[@]}"
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: accuracy-results-${{ github.run_id }}
+          path: benchmarks/accuracy/results/
