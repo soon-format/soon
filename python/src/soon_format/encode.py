@@ -50,6 +50,7 @@ class _Registry:
         cost: CostFn,
         labeled: bool = False,
         shape_hint_rows: int | None = None,
+        row_count_guardrail: bool = True,
     ) -> None:
         self.by_sig: dict[str, str] = {}
         self.names: set[str] = set()
@@ -57,6 +58,7 @@ class _Registry:
         self.cost: CostFn = cost
         self.labeled: bool = labeled
         self.shape_hint_rows: int | None = shape_hint_rows
+        self.row_count_guardrail: bool = row_count_guardrail
 
     def has(self, sig: str) -> bool:
         return sig in self.by_sig
@@ -93,6 +95,7 @@ def encode(
     mode: str = "auto",
     tokenizer: str | None = None,
     shape_hint_rows: int | None = None,
+    row_count_guardrail: bool = True,
 ) -> str:
     """Encode *data* (a JSON-compatible value) as a SOON document.
 
@@ -115,6 +118,12 @@ def encode(
     whether periodic re-priming improves LLM recall. Bypasses the
     per-array cost gate; the never-worse compare still applies at the
     document level in ``auto`` mode.
+
+    ``row_count_guardrail`` (v0.2, SPEC §4.1): when False, table headers
+    are emitted as ``[]<shape>:`` instead of ``[N]<shape>:``. Ablation
+    for the accuracy harness — measures whether stating the row count
+    actually helps LLMs. Primitive arrays are unaffected (their length
+    is inherent to the inline list).
     """
     if mode not in ("auto", "soon", "labeled", "json"):
         raise ValueError(f"unknown mode: {mode!r}")
@@ -126,7 +135,13 @@ def encode(
     enc = get_encoder(tokenizer)
     cost: CostFn = (lambda s: text_cost(s, enc)) if enc is not None else len
     labeled = mode == "labeled"
-    doc = _encode_soon(data, cost, labeled=labeled, shape_hint_rows=shape_hint_rows)
+    doc = _encode_soon(
+        data,
+        cost,
+        labeled=labeled,
+        shape_hint_rows=shape_hint_rows,
+        row_count_guardrail=row_count_guardrail,
+    )
     if doc is None:
         return cj
     if mode in ("soon", "labeled"):
@@ -139,8 +154,14 @@ def _encode_soon(
     cost: CostFn,
     labeled: bool = False,
     shape_hint_rows: int | None = None,
+    row_count_guardrail: bool = True,
 ) -> str | None:
-    reg = _Registry(cost, labeled=labeled, shape_hint_rows=shape_hint_rows)
+    reg = _Registry(
+        cost,
+        labeled=labeled,
+        shape_hint_rows=shape_hint_rows,
+        row_count_guardrail=row_count_guardrail,
+    )
     body: list[str] | None
     if isinstance(data, dict):
         body = _entries(data, 0, reg) if data else None
@@ -187,7 +208,8 @@ def _array_entry(
         inline = ",".join(scalar_literal(x) for x in value)
         head = f"{pad}{kt}[{len(value)}]:"
         return [head + (" " + inline if inline else "")]
-    header_prefix = f"{pad}{kt}[{len(value)}]"
+    count_seg = f"[{len(value)}]" if reg.row_count_guardrail else "[]"
+    header_prefix = f"{pad}{kt}{count_seg}"
     json_line = f"{pad}{kt}: !{compact_json(value)}"
     table = _try_table(value, hint, reg, header_prefix, json_line)
     if table is not None:
@@ -262,7 +284,7 @@ def _root_array(value: list[Any], reg: _Registry) -> list[str] | None:
         return [head + (" " + inline if inline else "")]
     # At root, the JSON fallback is the whole compact JSON of the value;
     # there is no key/padding to prepend.
-    header_prefix = f"[{len(value)}]"
+    header_prefix = f"[{len(value)}]" if reg.row_count_guardrail else "[]"
     json_line = compact_json(value)
     table = _try_table(value, "item", reg, header_prefix, json_line)
     if table is not None:

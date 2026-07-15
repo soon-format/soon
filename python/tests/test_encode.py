@@ -319,6 +319,50 @@ def test_shape_hint_rows_zero_rejected():
         encode({"x": 1}, shape_hint_rows=0)
 
 
+def test_row_count_guardrail_off_omits_n():
+    data = _long_hikes(6)
+    doc = encode(data, mode="soon", row_count_guardrail=False)
+    assert "hikes[]<hikes>:" in doc
+    assert "[6]" not in doc
+    assert decode(doc) == data
+
+
+def test_row_count_guardrail_off_roundtrips_with_labeled_and_hints():
+    data = _long_hikes(8)
+    doc = encode(
+        data, mode="labeled", shape_hint_rows=3, row_count_guardrail=False
+    )
+    assert "hikes[]<hikes>:" in doc
+    assert "# SHAPE hikes = " in doc
+    assert "(id=1,name=Trail1" in doc
+    assert decode(doc) == data
+
+
+def test_row_count_guardrail_off_root_array():
+    data = [{"a": i, "b": i * i} for i in range(1, 5)]
+    doc = encode(data, mode="soon", row_count_guardrail=False)
+    assert doc.startswith("SHAPE item = ")
+    assert "\n[]<item>:" in doc
+    assert decode(doc) == data
+
+
+def test_primitive_array_still_requires_count():
+    from soon_format import SoonDecodeError
+
+    # Encoder never emits ``[]`` for primitive arrays; decoder still rejects
+    # a hand-crafted document that tries it.
+    with pytest.raises(SoonDecodeError):
+        decode("nums[]: 1,2,3")
+
+
+def test_guardrail_off_terminates_at_dedent_or_eof():
+    data = {"rows": [{"a": 1}, {"a": 2}, {"a": 3}], "next": "sentinel"}
+    doc = encode(data, mode="soon", row_count_guardrail=False)
+    # ``next: sentinel`` is a normal entry after the rows block; unindented
+    # non-``(`` line terminates the guardrail-less table.
+    assert decode(doc) == data
+
+
 def test_comment_lines_ignored_by_decoder():
     # A hand-written comment between entries and inside a table.
     doc = (
