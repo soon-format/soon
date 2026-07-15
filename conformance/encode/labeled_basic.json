@@ -1,0 +1,28 @@
+{
+  "input": {
+    "hikes": [
+      {
+        "id": 1,
+        "name": "Blue Lake Trail",
+        "km": 7.5,
+        "sunny": true
+      },
+      {
+        "id": 2,
+        "name": "Ridge Overlook",
+        "km": 9.2,
+        "sunny": false
+      },
+      {
+        "id": 3,
+        "name": "Wildflower Loop",
+        "km": 5.1,
+        "sunny": true
+      }
+    ]
+  },
+  "options": {
+    "mode": "labeled"
+  },
+  "expected": "SHAPE hikes = {id,name,km,sunny}\nhikes[3]<hikes>:\n(id=1,name=Blue Lake Trail,km=7.5,sunny=true)\n(id=2,name=Ridge Overlook,km=9.2,sunny=false)\n(id=3,name=Wildflower Loop,km=5.1,sunny=true)"
+}

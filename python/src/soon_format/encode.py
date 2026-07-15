@@ -9,7 +9,18 @@ from typing import Any
 
 from .errors import SoonEncodeError
 from .scalars import compact_json, is_scalar, scalar_literal
-from .shape import OBJECT, PARRAY, RAW, SCALAR, TABLE, Field, Shape, infer_shape, serialize_shape
+from .shape import (
+    OBJECT,
+    PARRAY,
+    RAW,
+    SCALAR,
+    TABLE,
+    Field,
+    Shape,
+    field_name_token,
+    infer_shape,
+    serialize_shape,
+)
 from .tokencost import get_encoder, text_cost
 
 INDENT = "  "
@@ -34,11 +45,12 @@ class _Registry:
     whether the table is worth registering at all.
     """
 
-    def __init__(self, cost: CostFn) -> None:
+    def __init__(self, cost: CostFn, labeled: bool = False) -> None:
         self.by_sig: dict[str, str] = {}
         self.names: set[str] = set()
         self.decls: list[tuple[str, str]] = []
         self.cost: CostFn = cost
+        self.labeled: bool = labeled
 
     def has(self, sig: str) -> bool:
         return sig in self.by_sig
@@ -76,28 +88,32 @@ def encode(data: Any, *, mode: str = "auto", tokenizer: str | None = None) -> st
       - ``auto`` (default): SOON, falling back to compact JSON whenever SOON
         would not be strictly smaller (never-worse guarantee, SPEC §2.1).
       - ``soon``: force the SOON encoding (root scalars still use JSON).
+      - ``labeled``: force SOON with labeled tuples (``(id=1,name=Ada)``);
+        accuracy-insurance variant, per-array table decisions still honor
+        the local cost model against JSON fallback.
       - ``json``: force compact JSON.
 
     ``tokenizer`` names a tiktoken encoding (e.g. ``o200k_base``) used for the
     cost comparison in ``auto`` mode; character counts are used otherwise.
     """
-    if mode not in ("auto", "soon", "json"):
+    if mode not in ("auto", "soon", "labeled", "json"):
         raise ValueError(f"unknown mode: {mode!r}")
     cj = compact_json(data)
     if mode == "json":
         return cj
     enc = get_encoder(tokenizer)
     cost: CostFn = (lambda s: text_cost(s, enc)) if enc is not None else len
-    doc = _encode_soon(data, cost)
+    labeled = mode == "labeled"
+    doc = _encode_soon(data, cost, labeled=labeled)
     if doc is None:
         return cj
-    if mode == "soon":
+    if mode in ("soon", "labeled"):
         return doc
     return doc if cost(doc) < cost(cj) else cj
 
 
-def _encode_soon(data: Any, cost: CostFn) -> str | None:
-    reg = _Registry(cost)
+def _encode_soon(data: Any, cost: CostFn, labeled: bool = False) -> str | None:
+    reg = _Registry(cost, labeled=labeled)
     body: list[str] | None
     if isinstance(data, dict):
         body = _entries(data, 0, reg) if data else None
@@ -176,12 +192,17 @@ def _try_table(
         return None
     shape = infer_shape(value)
     sig = serialize_shape(shape)
-    rows = [_tuple(el, shape) for el in value]
+    rows = [_tuple(el, shape, reg.labeled) for el in value]
     name = reg.peek(sig, hint)
-    body = f"{header_prefix}<{name}>:\n" + "\n".join(rows)
-    soon_fragment = body if reg.has(sig) else f"SHAPE {name} = {sig}\n{body}"
-    if reg.cost(soon_fragment) >= reg.cost(json_line):
-        return None
+    # Labeled mode is an accuracy-insurance variant: the user opted in
+    # precisely to get labeled tables, so per-array JSON fallback is
+    # skipped. Never-worse compare against compact JSON still applies at
+    # the document level in ``encode()``.
+    if not reg.labeled:
+        body = f"{header_prefix}<{name}>:\n" + "\n".join(rows)
+        soon_fragment = body if reg.has(sig) else f"SHAPE {name} = {sig}\n{body}"
+        if reg.cost(soon_fragment) >= reg.cost(json_line):
+            return None
     reg.register(shape, hint)
     return name, rows
 
@@ -202,17 +223,23 @@ def _root_array(value: list[Any], reg: _Registry) -> list[str] | None:
     return None
 
 
-def _tuple(el: dict[str, Any], shape: Shape) -> str:
+def _tuple(el: dict[str, Any], shape: Shape, labeled: bool = False) -> str:
     parts: list[str] = []
     for f in shape.fields:
         if f.name not in el:
+            # Labeled tuples drop absent optional fields entirely — the
+            # explicit key=value form makes presence self-describing.
+            if labeled:
+                continue
             parts.append("_")
+        elif labeled:
+            parts.append(f"{field_name_token(f.name)}={_field_value(el[f.name], f, labeled)}")
         else:
-            parts.append(_field_value(el[f.name], f))
+            parts.append(_field_value(el[f.name], f, labeled))
     return "(" + ",".join(parts) + ")"
 
 
-def _field_value(value: Any, f: Field) -> str:
+def _field_value(value: Any, f: Field, labeled: bool = False) -> str:
     if f.kind == RAW:
         return "!" + compact_json(value)
     if value is None:
@@ -221,10 +248,10 @@ def _field_value(value: Any, f: Field) -> str:
         return scalar_literal(value)
     if f.kind == OBJECT:
         assert f.shape is not None
-        return _tuple(value, f.shape)
+        return _tuple(value, f.shape, labeled)
     if f.kind == TABLE:
         assert f.shape is not None
-        return "[" + ",".join(_tuple(el, f.shape) for el in value) + "]"
+        return "[" + ",".join(_tuple(el, f.shape, labeled) for el in value) + "]"
     if f.kind == PARRAY:
         return "[" + ",".join(scalar_literal(x) for x in value) + "]"
     raise SoonEncodeError(f"unknown field kind: {f.kind}")  # pragma: no cover
