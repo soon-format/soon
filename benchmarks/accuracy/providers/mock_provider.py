@@ -1,12 +1,12 @@
-"""Fixture-keyed deterministic provider for CI and dev-loop use.
+"""In-memory deterministic provider for CI and dev-loop use.
 
-Answers are looked up in ``fixtures/mock_answers.json`` — a
-``{question_id: expected_answer}`` map. If the question isn't in the
-fixture, we return the ground-truth answer computed at generation time
-(so a nightly CI run stays green as long as the pipeline is intact).
+Answers come from a module-level ``ANSWERS`` map keyed by question id.
+``run.py`` populates the map from the ground-truth values on each run,
+so the mock always answers correctly regardless of question set drift
+— its purpose is to verify plumbing, not to score models.
 
-The mock always reports the correct answer — it's a plumbing test, not
-a real evaluation. Use a real provider for actual measurements.
+The map can also be preloaded from ``fixtures/mock_answers.json`` for
+tests that don't spin up the full pipeline (see ``test_harness.py``).
 """
 
 from __future__ import annotations
@@ -16,17 +16,15 @@ from pathlib import Path
 
 _FIXTURE_PATH = Path(__file__).resolve().parents[1] / "fixtures" / "mock_answers.json"
 
-_ANSWERS: dict[str, str] | None = None
+# Public map: run.py fills this at startup; tests can also override it.
+ANSWERS: dict[str, str] = {}
 
 
-def _load_fixture() -> dict[str, str]:
-    global _ANSWERS
-    if _ANSWERS is None:
-        if _FIXTURE_PATH.exists():
-            _ANSWERS = json.loads(_FIXTURE_PATH.read_text(encoding="utf-8"))
-        else:
-            _ANSWERS = {}
-    return _ANSWERS
+def _load_fixture_if_empty() -> None:
+    if ANSWERS:
+        return
+    if _FIXTURE_PATH.exists():
+        ANSWERS.update(json.loads(_FIXTURE_PATH.read_text(encoding="utf-8")))
 
 
 class MockProvider:
@@ -35,14 +33,11 @@ class MockProvider:
 
     def complete(self, system: str, user: str) -> tuple[str, dict[str, int | None]]:
         del system  # unused — mock doesn't look at the prompt
+        _load_fixture_if_empty()
         # The user prompt embeds "question:<id>" for the mock to route on.
         # See evaluate.compose_prompt.
-        answers = _load_fixture()
         for line in user.splitlines():
             if line.startswith("question:"):
                 qid = line.split(":", 1)[1].strip()
-                if qid in answers:
-                    return answers[qid], {"prompt_tokens": None, "response_tokens": None}
-        # Empty response — the harness will score it as wrong, which is
-        # the right signal when fixtures are stale.
+                return ANSWERS.get(qid, ""), {"prompt_tokens": None, "response_tokens": None}
         return "", {"prompt_tokens": None, "response_tokens": None}

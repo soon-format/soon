@@ -38,7 +38,9 @@ from benchmarks.datasets import (  # noqa: E402
 
 from benchmarks.accuracy.evaluate import evaluate_one  # noqa: E402
 from benchmarks.accuracy.formats import PRIMERS, render  # noqa: E402
+from benchmarks.accuracy.normalize import format_expected  # noqa: E402
 from benchmarks.accuracy.providers import get_provider  # noqa: E402
+from benchmarks.accuracy.providers import mock_provider as _mock  # noqa: E402
 from benchmarks.accuracy.questions import all_questions  # noqa: E402
 from benchmarks.accuracy.report import write_report  # noqa: E402
 from benchmarks.accuracy.storage import save  # noqa: E402
@@ -110,6 +112,12 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if args.dry_run:
         questions = questions[:10]
+
+    # Preload the mock provider's answer map from the actual ground truth so
+    # a mock run scores 100% when the pipeline is intact.
+    _mock.ANSWERS.clear()
+    for q in questions:
+        _mock.ANSWERS[q.id] = format_expected(q.ground_truth, q.answer_type)
 
     generated_at = _dt.datetime.now(_dt.timezone.utc).isoformat()
 
