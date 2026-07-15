@@ -45,12 +45,18 @@ class _Registry:
     whether the table is worth registering at all.
     """
 
-    def __init__(self, cost: CostFn, labeled: bool = False) -> None:
+    def __init__(
+        self,
+        cost: CostFn,
+        labeled: bool = False,
+        shape_hint_rows: int | None = None,
+    ) -> None:
         self.by_sig: dict[str, str] = {}
         self.names: set[str] = set()
         self.decls: list[tuple[str, str]] = []
         self.cost: CostFn = cost
         self.labeled: bool = labeled
+        self.shape_hint_rows: int | None = shape_hint_rows
 
     def has(self, sig: str) -> bool:
         return sig in self.by_sig
@@ -81,7 +87,13 @@ class _Registry:
         return name
 
 
-def encode(data: Any, *, mode: str = "auto", tokenizer: str | None = None) -> str:
+def encode(
+    data: Any,
+    *,
+    mode: str = "auto",
+    tokenizer: str | None = None,
+    shape_hint_rows: int | None = None,
+) -> str:
     """Encode *data* (a JSON-compatible value) as a SOON document.
 
     Modes:
@@ -95,16 +107,26 @@ def encode(data: Any, *, mode: str = "auto", tokenizer: str | None = None) -> st
 
     ``tokenizer`` names a tiktoken encoding (e.g. ``o200k_base``) used for the
     cost comparison in ``auto`` mode; character counts are used otherwise.
+
+    ``shape_hint_rows`` (v0.2, SPEC §2 comment lines): when a positive int,
+    tables with at least ``2 * shape_hint_rows`` rows have their SHAPE
+    declaration re-emitted as a comment (``# SHAPE name = {sig}``) every
+    N rows. Ablation knob for the retrieval-accuracy harness — measures
+    whether periodic re-priming improves LLM recall. Bypasses the
+    per-array cost gate; the never-worse compare still applies at the
+    document level in ``auto`` mode.
     """
     if mode not in ("auto", "soon", "labeled", "json"):
         raise ValueError(f"unknown mode: {mode!r}")
+    if shape_hint_rows is not None and shape_hint_rows <= 0:
+        raise ValueError("shape_hint_rows must be a positive integer or None")
     cj = compact_json(data)
     if mode == "json":
         return cj
     enc = get_encoder(tokenizer)
     cost: CostFn = (lambda s: text_cost(s, enc)) if enc is not None else len
     labeled = mode == "labeled"
-    doc = _encode_soon(data, cost, labeled=labeled)
+    doc = _encode_soon(data, cost, labeled=labeled, shape_hint_rows=shape_hint_rows)
     if doc is None:
         return cj
     if mode in ("soon", "labeled"):
@@ -112,8 +134,13 @@ def encode(data: Any, *, mode: str = "auto", tokenizer: str | None = None) -> st
     return doc if cost(doc) < cost(cj) else cj
 
 
-def _encode_soon(data: Any, cost: CostFn, labeled: bool = False) -> str | None:
-    reg = _Registry(cost, labeled=labeled)
+def _encode_soon(
+    data: Any,
+    cost: CostFn,
+    labeled: bool = False,
+    shape_hint_rows: int | None = None,
+) -> str | None:
+    reg = _Registry(cost, labeled=labeled, shape_hint_rows=shape_hint_rows)
     body: list[str] | None
     if isinstance(data, dict):
         body = _entries(data, 0, reg) if data else None
@@ -194,17 +221,38 @@ def _try_table(
     sig = serialize_shape(shape)
     rows = [_tuple(el, shape, reg.labeled) for el in value]
     name = reg.peek(sig, hint)
-    # Labeled mode is an accuracy-insurance variant: the user opted in
-    # precisely to get labeled tables, so per-array JSON fallback is
-    # skipped. Never-worse compare against compact JSON still applies at
-    # the document level in ``encode()``.
-    if not reg.labeled:
+    rows = _intersperse_hints(rows, name, sig, reg.shape_hint_rows)
+    # Labeled and shape-hint mode are accuracy-insurance variants: the
+    # user opted in precisely to get labeled/hinted tables, so per-array
+    # JSON fallback is skipped. Never-worse compare against compact JSON
+    # still applies at the document level in ``encode()``.
+    bypass = reg.labeled or reg.shape_hint_rows is not None
+    if not bypass:
         body = f"{header_prefix}<{name}>:\n" + "\n".join(rows)
         soon_fragment = body if reg.has(sig) else f"SHAPE {name} = {sig}\n{body}"
         if reg.cost(soon_fragment) >= reg.cost(json_line):
             return None
     reg.register(shape, hint)
     return name, rows
+
+
+def _intersperse_hints(
+    rows: list[str], name: str, sig: str, every: int | None
+) -> list[str]:
+    """Insert ``# SHAPE name = {sig}`` comment lines every ``every`` rows.
+
+    Only applied when the table has at least ``2 * every`` rows — a single
+    reminder in a small table has no re-anchoring value.
+    """
+    if every is None or len(rows) < 2 * every:
+        return rows
+    out: list[str] = []
+    comment = f"# SHAPE {name} = {sig}"
+    for idx, row in enumerate(rows):
+        if idx > 0 and idx % every == 0:
+            out.append(comment)
+        out.append(row)
+    return out
 
 
 def _root_array(value: list[Any], reg: _Registry) -> list[str] | None:

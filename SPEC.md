@@ -37,6 +37,12 @@ body       = root-object | root-array | json-fallback
 - All shape declarations appear before the body.
 - Encoders MUST NOT emit blank lines. Decoders SHOULD skip blank lines between
   entries (but not inside table rows) and tolerate a trailing newline.
+- **Comment lines** (v0.2) start with `#` (optionally after leading spaces) and
+  MUST be ignored by decoders — including when they appear between the rows of
+  a table. Encoders MUST NOT emit comment lines by default; they appear only
+  when an explicit option asks for them (currently `shape_hint_rows`, which
+  re-emits the relevant SHAPE declaration mid-table so the reader can
+  re-anchor). A comment line MUST NOT be the whole document.
 
 ### 2.1 JSON fallback
 

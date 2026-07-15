@@ -68,14 +68,14 @@ class _Parser:
         return value
 
     def _skip_blanks(self) -> None:
-        while self.i < len(self.lines) and not self.lines[self.i].strip():
+        while self.i < len(self.lines) and _is_skippable(self.lines[self.i]):
             self.i += 1
 
     def _block(self, depth: int) -> dict[str, JsonValue]:
         out: dict[str, JsonValue] = {}
         while self.i < len(self.lines):
             line = self.lines[self.i]
-            if not line.strip():
+            if _is_skippable(line):
                 self.i += 1
                 continue
             indent = len(line) - len(line.lstrip(" "))
@@ -142,6 +142,8 @@ class _Parser:
                 raise SoonDecodeError(f"unknown shape: {shape_name}")
             rows: list[JsonValue] = []
             for _ in range(n):
+                while self.i < len(self.lines) and _is_skippable(self.lines[self.i]):
+                    self.i += 1
                 if self.i >= len(self.lines):
                     raise SoonDecodeError(
                         f"expected {n} rows, found {len(rows)} (unexpected end of document)"
@@ -160,6 +162,12 @@ class _Parser:
         if len(values) != n:
             raise SoonDecodeError(f"expected {n} elements, found {len(values)}")
         return values
+
+
+def _is_skippable(line: str) -> bool:
+    """Blank line or a ``#``-comment line (SPEC §2, v0.2)."""
+    stripped = line.lstrip(" ")
+    return stripped == "" or stripped.startswith("#")
 
 
 def _full_json(text: str, what: str) -> JsonValue:
