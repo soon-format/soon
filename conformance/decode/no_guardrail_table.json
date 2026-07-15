@@ -1,0 +1,4 @@
+{
+  "input": "SHAPE r = {a,b}\nrows[]<r>:\n(1,2)\n(3,4)\n(5,6)\nnext: sentinel",
+  "expected": {"rows": [{"a": 1, "b": 2}, {"a": 3, "b": 4}, {"a": 5, "b": 6}], "next": "sentinel"}
+}

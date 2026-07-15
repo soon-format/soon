@@ -13,8 +13,8 @@ from .shape import OBJECT, PARRAY, TABLE, Field, Shape, ShapeParser
 _json_decoder = json.JSONDecoder()
 
 SHAPE_DECL = re.compile(r"SHAPE ([A-Za-z_][A-Za-z0-9_]*) = (\{.*\})")
-ROOT_ARRAY = re.compile(r"\[(\d+)\](?:<([A-Za-z_][A-Za-z0-9_]*)>)?:(.*)")
-ENTRY_ARRAY = re.compile(r"\[(\d+)\](?:<([A-Za-z_][A-Za-z0-9_]*)>)?:(.*)")
+ROOT_ARRAY = re.compile(r"\[(\d*)\](?:<([A-Za-z_][A-Za-z0-9_]*)>)?:(.*)")
+ENTRY_ARRAY = re.compile(r"\[(\d*)\](?:<([A-Za-z_][A-Za-z0-9_]*)>)?:(.*)")
 KEY_TOKEN = re.compile(r"[A-Za-z0-9_\-]+")
 FIELD_LABEL = re.compile(r"([A-Za-z0-9_\-]+)=")
 _MISSING = object()
@@ -57,7 +57,7 @@ class _Parser:
         value: JsonValue
         if m:
             self.i += 1
-            value = self._array_value(int(m.group(1)), m.group(2), m.group(3))
+            value = self._array_value(m.group(1), m.group(2), m.group(3))
         else:
             value = self._block(0)
             if not value:
@@ -92,7 +92,7 @@ class _Parser:
                 m = ENTRY_ARRAY.match(line, pos)
                 if not m or m.end() != len(line):
                     raise SoonDecodeError(f"malformed array entry at line {self.i}")
-                out[key] = self._array_value(int(m.group(1)), m.group(2), m.group(3))
+                out[key] = self._array_value(m.group(1), m.group(2), m.group(3))
             elif c == ":":
                 rest = line[pos + 1 :]
                 if rest == "":
@@ -132,7 +132,7 @@ class _Parser:
         return parse_literal(rest)
 
     def _array_value(
-        self, n: int, shape_name: str | None, rest: str
+        self, n_raw: str, shape_name: str | None, rest: str
     ) -> list[JsonValue]:
         if shape_name is not None:
             if rest.strip():
@@ -141,6 +141,20 @@ class _Parser:
             if shape is None:
                 raise SoonDecodeError(f"unknown shape: {shape_name}")
             rows: list[JsonValue] = []
+            if n_raw == "":
+                # Guardrail-off form ``[]<shape>:`` — read rows until the
+                # next line that isn't a row/blank/comment.
+                while self.i < len(self.lines):
+                    line = self.lines[self.i]
+                    if _is_skippable(line):
+                        self.i += 1
+                        continue
+                    if not line.startswith("("):
+                        break
+                    self.i += 1
+                    rows.append(_TupleParser(line, self.i).parse_row(shape))
+                return rows
+            n = int(n_raw)
             for _ in range(n):
                 while self.i < len(self.lines) and _is_skippable(self.lines[self.i]):
                     self.i += 1
@@ -152,6 +166,10 @@ class _Parser:
                 self.i += 1
                 rows.append(_TupleParser(row, self.i).parse_row(shape))
             return rows
+        # Primitive array — N is required (values are inlined on the header).
+        if n_raw == "":
+            raise SoonDecodeError("primitive array requires an element count")
+        n = int(n_raw)
         if rest == "":
             if n != 0:
                 raise SoonDecodeError(f"expected {n} elements, found 0")

@@ -84,7 +84,13 @@ entry = key ": " scalar-value        ; scalar member
 ```
 
 - `key` is a token matching `[A-Za-z0-9_\-]+` or a JSON string otherwise.
-- `N` is the exact element count. Decoders MUST verify it.
+- `N` is the exact element count. Decoders MUST verify it. For **table**
+  arrays (i.e. `[N]<name>:`) v0.2 permits N to be omitted (`[]<name>:`)
+  as an ablation for the retrieval-accuracy harness (`row_count_guardrail`
+  encoder option). When N is absent, the table extends until the next
+  non-row line (a row begins with `(`; blanks and comment lines are
+  skipped between rows). Primitive arrays MUST always carry N — their
+  values are inlined on the header line and N is the only length signal.
 - After a table header, the next `N` lines are rows (§6), **without
   indentation**, regardless of the entry's depth.
 - Empty objects are encoded as raw members: `key: !{}`.
