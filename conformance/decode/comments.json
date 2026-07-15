@@ -1,0 +1,4 @@
+{
+  "input": "SHAPE t = {a,b}\n# leading comment\nx: 1\n  # indented mid-block comment\nrows[2]<t>:\n# between-rows comment\n(1,2)\n# another between-rows comment\n(3,4)",
+  "expected": {"x": 1, "rows": [{"a": 1, "b": 2}, {"a": 3, "b": 4}]}
+}

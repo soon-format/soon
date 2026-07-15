@@ -278,3 +278,58 @@ def test_labeled_mode_missing_required_rejected():
 def test_labeled_mode_unknown_mode_rejected():
     with pytest.raises(ValueError):
         encode({"x": 1}, mode="not_a_mode")
+
+
+def _long_hikes(n: int) -> dict:
+    return {
+        "hikes": [
+            {"id": i, "name": f"Trail{i}", "km": float(i), "sunny": i % 2 == 0}
+            for i in range(1, n + 1)
+        ]
+    }
+
+
+def test_shape_hint_rows_interspersed_and_roundtrips():
+    doc = encode(_long_hikes(10), mode="soon", shape_hint_rows=3)
+    lines = doc.split("\n")
+    comment_lines = [ln for ln in lines if ln.startswith("#")]
+    assert comment_lines, "expected at least one hint comment line"
+    assert all(ln == "# SHAPE hikes = {id,name,km,sunny}" for ln in comment_lines)
+    # 10 rows, every=3, floor((10-1)/3)=3 → hints before rows 3, 6, 9
+    assert len(comment_lines) == 3
+    assert decode(doc) == _long_hikes(10)
+
+
+def test_shape_hint_rows_skipped_for_short_tables():
+    # 4 rows with every=3 → 4 < 2*3, no reminders.
+    doc = encode(_long_hikes(4), mode="soon", shape_hint_rows=3)
+    assert "#" not in doc
+    assert decode(doc) == _long_hikes(4)
+
+
+def test_shape_hint_rows_composes_with_labeled():
+    doc = encode(_long_hikes(6), mode="labeled", shape_hint_rows=2)
+    assert "# SHAPE hikes = {id,name,km,sunny}" in doc
+    assert "(id=1,name=Trail1" in doc
+    assert decode(doc) == _long_hikes(6)
+
+
+def test_shape_hint_rows_zero_rejected():
+    with pytest.raises(ValueError):
+        encode({"x": 1}, shape_hint_rows=0)
+
+
+def test_comment_lines_ignored_by_decoder():
+    # A hand-written comment between entries and inside a table.
+    doc = (
+        "SHAPE t = {a,b}\n"
+        "# top-level comment\n"
+        "x: 1\n"
+        "  # indented comment (still skipped)\n"
+        "rows[2]<t>:\n"
+        "# between-rows comment\n"
+        "(1,2)\n"
+        "# another between-rows comment\n"
+        "(3,4)"
+    )
+    assert decode(doc) == {"x": 1, "rows": [{"a": 1, "b": 2}, {"a": 3, "b": 4}]}
