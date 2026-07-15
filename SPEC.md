@@ -222,6 +222,32 @@ Rules:
 - Hydration on decode: for each elided field, set to the row's override
   value if present, otherwise the default.
 
+### 6.3 REF — repeated-subtree deduplication (v0.2)
+
+When the same object sub-tree appears multiple times in one table's
+OBJECT-typed field, REF lets it be declared once and referenced by
+name. Example: 200 employees sharing the same head-office address.
+
+Grammar (extends §2):
+
+```
+ref-decl = "REF &" ref-name " = " tuple
+ref-use  = "&" ref-name          ; appears where an object tuple would
+```
+
+- `ref-name` matches `[A-Za-z_][A-Za-z0-9_]*`.
+- REF declarations appear alongside SHAPE declarations at the top of
+  the document; encoders MUST emit them before the body.
+- A REF value is a tuple written per §6. Its shape is determined at
+  use site — the field of the enclosing tuple where the reference
+  appears provides the OBJECT shape used to parse the ref value.
+- Encoders MAY register a REF whenever ≥ 2 identical OBJECT sub-values
+  appear as the same field of the same table, and MUST use the cost
+  model to confirm the substitution is net-positive.
+- Decoders MUST reject references to undeclared REF names.
+- Each `&name` use produces an independent deep copy of the referenced
+  value — mutating one decoded row's value does not affect others.
+
 ## 7. Shape inference (encoding)
 
 For an array where every element is an object and length ≥ 2, encoders

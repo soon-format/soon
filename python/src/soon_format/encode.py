@@ -52,15 +52,29 @@ class _Registry:
         shape_hint_rows: int | None = None,
         row_count_guardrail: bool = True,
         elide: bool = False,
+        ref: bool = False,
     ) -> None:
         self.by_sig: dict[str, str] = {}
         self.names: set[str] = set()
         self.decls: list[tuple[str, str]] = []
+        self.refs: list[tuple[str, str]] = []
         self.cost: CostFn = cost
         self.labeled: bool = labeled
         self.shape_hint_rows: int | None = shape_hint_rows
         self.row_count_guardrail: bool = row_count_guardrail
         self.elide: bool = elide
+        self.ref: bool = ref
+
+    def mint_ref(self, hint: str) -> str:
+        base = _NAME_SANITIZE.sub("", hint) or "ref"
+        if base[0].isdigit():
+            base = "r" + base
+        name, i = base, 2
+        while name in self.names:
+            name = f"{base}{i}"
+            i += 1
+        self.names.add(name)
+        return name
 
     def has(self, sig: str) -> bool:
         return sig in self.by_sig
@@ -98,6 +112,7 @@ def encode(
     shape_hint_rows: int | None = None,
     row_count_guardrail: bool = True,
     elide: bool = False,
+    ref: bool = False,
 ) -> str:
     """Encode *data* (a JSON-compatible value) as a SOON document.
 
@@ -132,6 +147,11 @@ def encode(
     body and declared as ``| defaults: k=v`` in the SHAPE decl.
     Exceptional rows carry ``+k=v`` overrides. The per-array cost gate
     picks the winner between elided and non-elided candidates.
+
+    ``ref`` (v0.2, SPEC §6.3): when True, identical OBJECT-typed
+    sub-values that appear ≥ 2 times as the same field of the same
+    table are hoisted into ``REF &name = (tuple)`` declarations and
+    referenced inline via ``&name``. Only applied when net-positive.
     """
     if mode not in ("auto", "soon", "labeled", "json"):
         raise ValueError(f"unknown mode: {mode!r}")
@@ -150,6 +170,7 @@ def encode(
         shape_hint_rows=shape_hint_rows,
         row_count_guardrail=row_count_guardrail,
         elide=elide,
+        ref=ref,
     )
     if doc is None:
         return cj
@@ -165,6 +186,7 @@ def _encode_soon(
     shape_hint_rows: int | None = None,
     row_count_guardrail: bool = True,
     elide: bool = False,
+    ref: bool = False,
 ) -> str | None:
     reg = _Registry(
         cost,
@@ -172,6 +194,7 @@ def _encode_soon(
         shape_hint_rows=shape_hint_rows,
         row_count_guardrail=row_count_guardrail,
         elide=elide,
+        ref=ref,
     )
     body: list[str] | None
     if isinstance(data, dict):
@@ -183,6 +206,7 @@ def _encode_soon(
     if body is None:
         return None
     decls = [f"SHAPE {name} = {sig}" for name, sig in reg.decls]
+    decls += [f"REF &{name} = {text}" for name, text in reg.refs]
     return "\n".join(decls + body)
 
 
@@ -254,10 +278,11 @@ def _try_table(
     if len(value) < 2 or not all(isinstance(x, dict) for x in value):
         return None
     shape = infer_shape(value)
-    base_rows = [_tuple(el, shape, reg.labeled) for el in value]
+    refs_by_hash, ref_decls = _collect_refs(value, shape, reg) if reg.ref else ({}, [])
+    base_rows = [_tuple(el, shape, reg.labeled, refs_by_hash) for el in value]
     candidates: list[tuple[str, list[str]]] = [(serialize_shape(shape), base_rows)]
     if reg.elide:
-        elided = _elide_candidate(value, shape, reg.labeled)
+        elided = _elide_candidate(value, shape, reg.labeled, refs_by_hash)
         if elided is not None:
             candidates.append(elided)
     # Local cost gate + winner selection. Labeled and shape-hint modes
@@ -275,14 +300,87 @@ def _try_table(
             best = (cand_sig, cand_rows_hinted, c, body)
     assert best is not None
     sig, rows, fragment_cost, _ = best
-    if not bypass and fragment_cost >= reg.cost(json_line):
+    # Include REF-decl cost too — a promotion that hurts the doc more
+    # than it saves at the table-body cost gate is a net loss.
+    ref_decl_cost = sum(reg.cost(f"REF &{n} = {t}") for n, t in ref_decls)
+    if not bypass and fragment_cost + ref_decl_cost >= reg.cost(json_line):
         return None
     reg.register(sig, hint)
+    for ref_name, ref_text in ref_decls:
+        reg.refs.append((ref_name, ref_text))
     return reg.peek(sig, hint), rows
 
 
+def _collect_refs(
+    value: list[dict[str, Any]],
+    shape: Shape,
+    reg: _Registry,
+) -> tuple[dict[str, str], list[tuple[str, str]]]:
+    """For each OBJECT-typed field, hoist duplicated sub-values into
+    ``REF &name = (tuple)`` declarations. Returns (hash → ref_name map,
+    list of (ref_name, ref_text) to append to reg.refs on commit).
+
+    Only net-positive promotions are kept: the sum of inline emissions
+    saved must exceed the REF declaration cost plus per-use ``&name``
+    cost. Uses ``reg.cost`` so token- and character-modes decide the
+    same way.
+    """
+    from collections import Counter
+
+    refs_by_hash: dict[str, str] = {}
+    ref_decls: list[tuple[str, str]] = []
+    for f in shape.fields:
+        if f.kind != OBJECT or f.shape is None:
+            continue
+        # Extract this field's per-row values; skip rows where it's absent.
+        vals: list[dict[str, Any]] = []
+        for row in value:
+            v = row.get(f.name)
+            if isinstance(v, dict):
+                vals.append(v)
+        if len(vals) < 2:
+            continue
+        hashes = [_canonical(v) for v in vals]
+        counts = Counter(hashes)
+        for h, count in counts.items():
+            if count < 2 or h in refs_by_hash:
+                continue
+            # Cost model: pick the first matching value to emit.
+            sample = vals[hashes.index(h)]
+            tuple_text = _tuple(sample, f.shape, reg.labeled, {})
+            ref_name = reg.mint_ref(f.name)
+            use_text = f"&{ref_name}"
+            saved = count * reg.cost(tuple_text) - (
+                reg.cost(f"REF &{ref_name} = {tuple_text}")
+                + count * reg.cost(use_text)
+            )
+            if saved > 0:
+                refs_by_hash[h] = ref_name
+                ref_decls.append((ref_name, tuple_text))
+            else:
+                # Unmint (release the name) so cost gates aren't polluted.
+                reg.names.discard(ref_name)
+    return refs_by_hash, ref_decls
+
+
+def _canonical(value: Any) -> str:
+    """Structural canonical form for hashing subtree equality."""
+    return compact_json(_canon(value))
+
+
+def _canon(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {k: _canon(value[k]) for k in sorted(value)}
+    if isinstance(value, list):
+        return [_canon(x) for x in value]
+    return value
+
+
 def _elide_candidate(
-    value: list[dict[str, Any]], shape: Shape, labeled: bool
+    value: list[dict[str, Any]],
+    shape: Shape,
+    labeled: bool,
+    refs_by_hash: dict[str, str] | None = None,
 ) -> tuple[str, list[str]] | None:
     """Compute the elided-shape variant, or ``None`` if nothing qualifies.
 
@@ -319,7 +417,7 @@ def _elide_candidate(
     sig = f"{reduced_sig_body} | defaults: {defaults_clause}"
     rows: list[str] = []
     for row in value:
-        base = _tuple(row, reduced, labeled)
+        base = _tuple(row, reduced, labeled, refs_by_hash or {})
         overrides: list[str] = []
         for k, default_val in defaults.items():
             if row.get(k) != default_val:
@@ -366,7 +464,13 @@ def _root_array(value: list[Any], reg: _Registry) -> list[str] | None:
     return None
 
 
-def _tuple(el: dict[str, Any], shape: Shape, labeled: bool = False) -> str:
+def _tuple(
+    el: dict[str, Any],
+    shape: Shape,
+    labeled: bool = False,
+    refs_by_hash: dict[str, str] | None = None,
+) -> str:
+    refs_by_hash = refs_by_hash or {}
     parts: list[str] = []
     for f in shape.fields:
         if f.name not in el:
@@ -376,13 +480,21 @@ def _tuple(el: dict[str, Any], shape: Shape, labeled: bool = False) -> str:
                 continue
             parts.append("_")
         elif labeled:
-            parts.append(f"{field_name_token(f.name)}={_field_value(el[f.name], f, labeled)}")
+            parts.append(
+                f"{field_name_token(f.name)}={_field_value(el[f.name], f, labeled, refs_by_hash)}"
+            )
         else:
-            parts.append(_field_value(el[f.name], f, labeled))
+            parts.append(_field_value(el[f.name], f, labeled, refs_by_hash))
     return "(" + ",".join(parts) + ")"
 
 
-def _field_value(value: Any, f: Field, labeled: bool = False) -> str:
+def _field_value(
+    value: Any,
+    f: Field,
+    labeled: bool = False,
+    refs_by_hash: dict[str, str] | None = None,
+) -> str:
+    refs_by_hash = refs_by_hash or {}
     if f.kind == RAW:
         return "!" + compact_json(value)
     if value is None:
@@ -391,10 +503,14 @@ def _field_value(value: Any, f: Field, labeled: bool = False) -> str:
         return scalar_literal(value)
     if f.kind == OBJECT:
         assert f.shape is not None
-        return _tuple(value, f.shape, labeled)
+        if refs_by_hash and isinstance(value, dict):
+            ref_name = refs_by_hash.get(_canonical(value))
+            if ref_name is not None:
+                return f"&{ref_name}"
+        return _tuple(value, f.shape, labeled, refs_by_hash)
     if f.kind == TABLE:
         assert f.shape is not None
-        return "[" + ",".join(_tuple(el, f.shape, labeled) for el in value) + "]"
+        return "[" + ",".join(_tuple(el, f.shape, labeled, refs_by_hash) for el in value) + "]"
     if f.kind == PARRAY:
         return "[" + ",".join(scalar_literal(x) for x in value) + "]"
     raise SoonEncodeError(f"unknown field kind: {f.kind}")  # pragma: no cover
