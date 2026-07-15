@@ -184,6 +184,44 @@ non-whitespace token after `(` matches `field-name "="` for some field
 of the declared shape; otherwise it is positional. Empty tuples `()`
 are only legal in labeled form (all fields optional).
 
+### 6.2 ELIDE — default-value elision (v0.2)
+
+Real-world payloads often have columns dominated by one value (e.g.
+`status=active` in 95% of rows). ELIDE removes such columns from the
+table body, declaring their default once in the shape declaration and
+emitting only the exceptions inline.
+
+Shape-declaration grammar (extends §3):
+
+```
+shape-decl-with-defaults = shape-decl [" | defaults: " default-list]
+default-list             = default ("," default)*
+default                  = field-name "=" scalar-literal
+```
+
+Row-override grammar (extends §6):
+
+```
+row = tuple *(" +" field-name "=" field-value)
+```
+
+Rules:
+
+- An elided field MUST NOT appear in the shape's field list AND MUST
+  appear in the defaults clause. It MUST have been present in every
+  original row (i.e. non-optional) — this preserves the "absent" vs
+  "defaulted" distinction.
+- Encoders MAY elide any required scalar field whose most common value
+  appears in a strict majority of rows (recommended threshold ≥ 80%),
+  and MUST use the cost model to confirm elision is net-positive.
+- Row overrides use the same value grammar as tuple field values.
+  Multiple overrides on a single row are joined by `" +"` (space,
+  plus, no comma).
+- Decoders MUST reject a default whose field also appears in the shape,
+  and MUST reject an override for a field not in the defaults list.
+- Hydration on decode: for each elided field, set to the row's override
+  value if present, otherwise the default.
+
 ## 7. Shape inference (encoding)
 
 For an array where every element is an object and length ≥ 2, encoders

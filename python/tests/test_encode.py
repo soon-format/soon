@@ -363,6 +363,96 @@ def test_guardrail_off_terminates_at_dedent_or_eof():
     assert decode(doc) == data
 
 
+def _sparse_users(n_active: int, n_other: int) -> dict:
+    users = [
+        {"id": i + 1, "name": f"u{i+1}", "status": "active"}
+        for i in range(n_active)
+    ]
+    users += [
+        {"id": n_active + i + 1, "name": f"u{n_active+i+1}", "status": "cancelled"}
+        for i in range(n_other)
+    ]
+    return {"users": users}
+
+
+def test_elide_drops_majority_column():
+    # 9/10 active → status field elides.
+    data = _sparse_users(9, 1)
+    doc = encode(data, mode="soon", elide=True)
+    assert "| defaults: status=active" in doc
+    assert "+status=cancelled" in doc
+    # Non-override rows have no trailing +override.
+    active_rows = [ln for ln in doc.split("\n") if ln.startswith("(") and "+" not in ln]
+    assert len(active_rows) == 9
+    assert decode(doc) == data
+
+
+def test_elide_no_op_when_below_threshold():
+    # 6/10 active → below 80% → no elision.
+    data = _sparse_users(6, 4)
+    doc = encode(data, mode="soon", elide=True)
+    assert "| defaults" not in doc
+    assert decode(doc) == data
+
+
+def test_elide_off_by_default():
+    data = _sparse_users(9, 1)
+    doc = encode(data, mode="soon")
+    assert "| defaults" not in doc
+    assert decode(doc) == data
+
+
+def test_elide_composes_with_labeled():
+    data = _sparse_users(9, 1)
+    doc = encode(data, mode="labeled", elide=True)
+    assert "| defaults: status=active" in doc
+    assert "(id=1,name=u1)" in doc
+    assert "+status=cancelled" in doc
+    assert decode(doc) == data
+
+
+def test_elide_composes_with_guardrail_off():
+    data = _sparse_users(9, 1)
+    doc = encode(data, mode="soon", elide=True, row_count_guardrail=False)
+    assert "users[]<users>:" in doc
+    assert "| defaults: status=active" in doc
+    assert decode(doc) == data
+
+
+def test_elide_multi_column():
+    data = {
+        "rows": [
+            {"id": i + 1, "a": "x", "b": "y"} for i in range(8)
+        ] + [
+            {"id": 9, "a": "x", "b": "z"},
+            {"id": 10, "a": "q", "b": "y"},
+        ]
+    }
+    doc = encode(data, mode="soon", elide=True)
+    assert "| defaults: a=x,b=y" in doc or "| defaults: b=y,a=x" in doc
+    assert decode(doc) == data
+
+
+def test_decoder_rejects_override_of_undeclared_field():
+    from soon_format import SoonDecodeError
+
+    doc = (
+        "SHAPE r = {id,name} | defaults: status=active\n"
+        "rows[1]<r>:\n"
+        "(1,Ada) +nonexistent=oops"
+    )
+    with pytest.raises(SoonDecodeError):
+        decode(doc)
+
+
+def test_decoder_rejects_default_colliding_with_field():
+    from soon_format import SoonDecodeError
+
+    doc = "SHAPE r = {id,name,status} | defaults: status=active\nrows[0]<r>:"
+    with pytest.raises(SoonDecodeError):
+        decode(doc)
+
+
 def test_comment_lines_ignored_by_decoder():
     # A hand-written comment between entries and inside a table.
     doc = (

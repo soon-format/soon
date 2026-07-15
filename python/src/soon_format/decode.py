@@ -12,7 +12,8 @@ from .shape import OBJECT, PARRAY, TABLE, Field, Shape, ShapeParser
 
 _json_decoder = json.JSONDecoder()
 
-SHAPE_DECL = re.compile(r"SHAPE ([A-Za-z_][A-Za-z0-9_]*) = (\{.*\})")
+SHAPE_DECL = re.compile(r"SHAPE ([A-Za-z_][A-Za-z0-9_]*) = (.*)")
+DEFAULTS_PREFIX = " | defaults: "
 ROOT_ARRAY = re.compile(r"\[(\d*)\](?:<([A-Za-z_][A-Za-z0-9_]*)>)?:(.*)")
 ENTRY_ARRAY = re.compile(r"\[(\d*)\](?:<([A-Za-z_][A-Za-z0-9_]*)>)?:(.*)")
 KEY_TOKEN = re.compile(r"[A-Za-z0-9_\-]+")
@@ -37,6 +38,7 @@ class _Parser:
         self.lines = text.split("\n")
         self.i = 0
         self.shapes: dict[str, Shape] = {}
+        self.defaults: dict[str, dict[str, JsonValue]] = {}
 
     def parse(self) -> JsonValue:
         if not any(line.strip() for line in self.lines):
@@ -48,7 +50,7 @@ class _Parser:
             name = m.group(1)
             if name in self.shapes:
                 raise SoonDecodeError(f"duplicate shape declaration: {name}")
-            self.shapes[name] = ShapeParser(m.group(2)).parse()
+            self.shapes[name], self.defaults[name] = self._parse_shape_decl(m.group(2))
             self.i += 1
         self._skip_blanks()
         if self.i >= len(self.lines):
@@ -66,6 +68,28 @@ class _Parser:
         if self.i < len(self.lines):
             raise SoonDecodeError(f"trailing content at line {self.i + 1}")
         return value
+
+    def _parse_shape_decl(
+        self, rest: str
+    ) -> tuple[Shape, dict[str, JsonValue]]:
+        parser = ShapeParser(rest)
+        shape = parser.parse_prefix()
+        tail = rest[parser.i:]
+        if tail == "":
+            return shape, {}
+        if not tail.startswith(DEFAULTS_PREFIX):
+            raise SoonDecodeError(
+                f"unexpected trailing content in SHAPE decl: {tail!r}"
+            )
+        defaults_str = tail[len(DEFAULTS_PREFIX):]
+        defaults = _parse_defaults(defaults_str)
+        shape_field_names = {f.name for f in shape.fields}
+        for k in defaults:
+            if k in shape_field_names:
+                raise SoonDecodeError(
+                    f"ELIDE default {k!r} collides with shape field of the same name"
+                )
+        return shape, defaults
 
     def _skip_blanks(self) -> None:
         while self.i < len(self.lines) and _is_skippable(self.lines[self.i]):
@@ -140,6 +164,7 @@ class _Parser:
             shape = self.shapes.get(shape_name)
             if shape is None:
                 raise SoonDecodeError(f"unknown shape: {shape_name}")
+            defaults = self.defaults.get(shape_name, {})
             rows: list[JsonValue] = []
             if n_raw == "":
                 # Guardrail-off form ``[]<shape>:`` — read rows until the
@@ -152,7 +177,7 @@ class _Parser:
                     if not line.startswith("("):
                         break
                     self.i += 1
-                    rows.append(_TupleParser(line, self.i).parse_row(shape))
+                    rows.append(_parse_row_with_defaults(line, self.i, shape, defaults))
                 return rows
             n = int(n_raw)
             for _ in range(n):
@@ -164,7 +189,7 @@ class _Parser:
                     )
                 row = self.lines[self.i]
                 self.i += 1
-                rows.append(_TupleParser(row, self.i).parse_row(shape))
+                rows.append(_parse_row_with_defaults(row, self.i, shape, defaults))
             return rows
         # Primitive array — N is required (values are inlined on the header).
         if n_raw == "":
@@ -186,6 +211,92 @@ def _is_skippable(line: str) -> bool:
     """Blank line or a ``#``-comment line (SPEC §2, v0.2)."""
     stripped = line.lstrip(" ")
     return stripped == "" or stripped.startswith("#")
+
+
+def _parse_defaults(s: str) -> dict[str, JsonValue]:
+    """Parse an ELIDE defaults clause: ``k1=v1,k2=v2`` (SPEC §6.2)."""
+    out: dict[str, JsonValue] = {}
+    tp = _TupleParser(s, 0)
+    while True:
+        name = _read_label_name(tp)
+        if tp.i >= len(tp.s) or tp.s[tp.i] != "=":
+            raise SoonDecodeError(
+                f"malformed ELIDE default (expected '=') at position {tp.i}"
+            )
+        tp.i += 1
+        # Defaults use the same scalar grammar as tuple values but never
+        # extend to raw/null-sentinel forms — enforce scalar-literal-only.
+        if tp._peek() in ("!", "("):
+            raise SoonDecodeError(
+                f"ELIDE default {name!r}: only scalar literals are allowed"
+            )
+        value = tp._scalar_token()
+        if name in out:
+            raise SoonDecodeError(f"duplicate default {name!r}")
+        out[name] = value
+        tp._skip_ws()
+        if tp.i >= len(tp.s):
+            break
+        if tp.s[tp.i] != ",":
+            raise SoonDecodeError(
+                f"expected ',' between ELIDE defaults at position {tp.i}"
+            )
+        tp.i += 1
+        tp._skip_ws()
+    return out
+
+
+def _parse_row_with_defaults(
+    row: str,
+    line_no: int,
+    shape: Shape,
+    defaults: dict[str, JsonValue],
+) -> dict[str, JsonValue]:
+    """Parse a table row, then apply any ELIDE overrides + defaults hydration."""
+    tp = _TupleParser(row, line_no)
+    tuple_value = tp._tuple(shape)
+    overrides: dict[str, JsonValue] = {}
+    while tp.i < len(tp.s):
+        if tp.s[tp.i] != " ":
+            raise tp._err("expected ' +' before row override or end of row")
+        # Peek: only ``+`` starts an override; otherwise fall through as
+        # a trailing-content error via the final check below.
+        if tp.i + 1 >= len(tp.s) or tp.s[tp.i + 1] != "+":
+            break
+        tp.i += 2  # consume " +"
+        name = _read_label_name(tp)
+        if name not in defaults:
+            raise tp._err(f"override {name!r} not declared in ELIDE defaults")
+        if name in overrides:
+            raise tp._err(f"duplicate row override {name!r}")
+        if tp.i >= len(tp.s) or tp.s[tp.i] != "=":
+            raise tp._err(f"malformed override (expected '=') for {name!r}")
+        tp.i += 1
+        overrides[name] = tp._scalar_token()
+    if tp.i != len(tp.s):
+        raise tp._err("trailing characters after row")
+    for name, default_val in defaults.items():
+        tuple_value[name] = overrides.get(name, default_val)
+    return tuple_value
+
+
+def _read_label_name(tp: _TupleParser) -> str:
+    """Read a bare identifier or JSON-quoted string as a label name."""
+    if tp._peek() == '"':
+        try:
+            value, end = _json_decoder.raw_decode(tp.s, tp.i)
+        except ValueError as exc:
+            raise SoonDecodeError(f"bad quoted label name: {exc}") from exc
+        if not isinstance(value, str):
+            raise SoonDecodeError("label name must be a string")
+        tp.i = end
+        return value
+    m = FIELD_LABEL.match(tp.s, tp.i)
+    if not m:
+        raise SoonDecodeError(f"expected label name at position {tp.i}")
+    name = m.group(1)
+    tp.i = m.start() + len(name)
+    return name
 
 
 def _full_json(text: str, what: str) -> JsonValue:
