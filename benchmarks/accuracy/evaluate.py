@@ -8,7 +8,6 @@ errors are handled here so the top-level loop stays a simple pipeline.
 from __future__ import annotations
 
 import time
-from typing import Any
 
 from .normalize import compare
 from .providers import Provider

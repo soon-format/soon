@@ -118,3 +118,16 @@ def compare(response: str, ground_truth: Any, answer_type: str) -> tuple[bool, A
         target = sorted(str(x).lower() for x in ground_truth)
         return (sorted(p.lower() for p in parts) == target, parts)
     raise ValueError(f"unknown answer_type: {answer_type!r}")
+
+
+def format_expected(ground_truth: Any, answer_type: str) -> str:
+    """Render ground truth in the form a well-behaved model would answer.
+
+    Used by the mock provider so a plumbing run scores 100% — any
+    non-100% mock result means the scoring pipeline is broken.
+    """
+    if answer_type == "boolean":
+        return "yes" if ground_truth else "no"
+    if answer_type in ("list-ordered", "list-unordered"):
+        return ", ".join(str(x) for x in ground_truth)
+    return str(ground_truth)
