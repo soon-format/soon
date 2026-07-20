@@ -383,6 +383,7 @@ class TupleParser {
       this.i++;
       overrides.set(name, this.scalarToken(" "));
     }
+    this.skipWs();
     if (this.i !== this.s.length) {
       throw this.err("trailing characters after row");
     }
