@@ -288,7 +288,7 @@ def _parse_row_with_defaults(
         if tp.i >= len(tp.s) or tp.s[tp.i] != "=":
             raise tp._err(f"malformed override (expected '=') for {name!r}")
         tp.i += 1
-        overrides[name] = tp._scalar_token()
+        overrides[name] = tp._scalar_token(extra_boundaries=" ")
     if tp.i != len(tp.s):
         raise tp._err("trailing characters after row")
     for name, default_val in defaults.items():
@@ -531,7 +531,7 @@ class _TupleParser:
         self.i = end
         return value  # type: ignore[no-any-return]
 
-    def _scalar_token(self) -> JsonValue:
+    def _scalar_token(self, extra_boundaries: str = "") -> JsonValue:
         self._skip_ws()
         if self._peek() == '"':
             value = self._raw_json()
@@ -539,7 +539,7 @@ class _TupleParser:
                 raise self._err("quoted value must be a string")
             return value
         j = self.i
-        while j < len(self.s) and self.s[j] not in ",)]":
+        while j < len(self.s) and self.s[j] not in ",)]" and self.s[j] not in extra_boundaries:
             j += 1
         token = self.s[self.i : j]
         if token == "":
