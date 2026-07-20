@@ -1,4 +1,4 @@
-# Python
+# Python (benchmarks still use Python)
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -13,11 +13,6 @@ venv/
 .hypothesis/
 .coverage
 htmlcov/
-
-# Node
-node_modules/
-*.tsbuildinfo
-ts/packages/*/dist/
 
 # Editors / OS
 .DS_Store
