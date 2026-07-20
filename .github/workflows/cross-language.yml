@@ -1,0 +1,37 @@
+name: Cross-language matrix
+
+on:
+  push:
+    branches: [main]
+    paths: [conformance/**, tests/cross-language-matrix.py]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    name: Py × TS conformance matrix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: soon-format/soon-typescript
+          path: ../soon-typescript
+      - uses: actions/checkout@v7
+        with:
+          repository: soon-format/soon-python
+          path: ../soon-python
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Install Python implementation
+        run: pip install -e "../soon-python[dev]"
+      - name: Build TypeScript implementation
+        run: cd ../soon-typescript && npm ci && npm run build
+      - name: Run cross-language matrix
+        run: python3 tests/cross-language-matrix.py
