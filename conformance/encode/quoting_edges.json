@@ -36,5 +36,5 @@
   "options": {
     "mode": "soon"
   },
-  "expected": "SHAPE vals = {s}\nvals[10]<vals>:\n(\"_\")\n(\"null\")\n(\"-12.5\")\n(\"1e5\")\n(\"with, comma\")\n(\"(paren)\")\n(\" padded \")\n(plain words)\n(\"\")\n(\"tab\\there\")"
+  "expected": "vals[10]{s}:\n\"_\"\n\"null\"\n\"-12.5\"\n\"1e5\"\n\"with, comma\"\n\"(paren)\"\n\" padded \"\nplain words\n\"\"\n\"tab\\there\""
 }

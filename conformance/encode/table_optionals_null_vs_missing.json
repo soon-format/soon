@@ -26,5 +26,5 @@
   "options": {
     "mode": "soon"
   },
-  "expected": "SHAPE users = {id,name,?email,?phone}\nusers[4]<users>:\n(1,Ada,ada@x.co,null)\n(2,Linus,_,_)\n(3,Grace,grace@x.co,_)\n(4,Edsger,_,null)"
+  "expected": "users[4]{id,name,?email,?phone}:\n1,Ada,ada@x.co,null\n2,Linus,_,_\n3,Grace,grace@x.co,_\n4,Edsger,_,null"
 }
