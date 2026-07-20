@@ -289,6 +289,7 @@ def _parse_row_with_defaults(
             raise tp._err(f"malformed override (expected '=') for {name!r}")
         tp.i += 1
         overrides[name] = tp._scalar_token(extra_boundaries=" ")
+    tp._skip_ws()
     if tp.i != len(tp.s):
         raise tp._err("trailing characters after row")
     for name, default_val in defaults.items():
@@ -395,17 +396,55 @@ class _TupleParser:
         return out
 
     def _is_labeled_head(self, shape: Shape) -> bool:
-        """True iff the next token is a shape field name followed by ``=``.
+        """True iff the first two entries are both ``field_name=...`` labels.
 
-        Accepts both bare tokens (``foo=``) and quoted names (``")="=``)
-        for non-token keys. Positional tuple values never start with a
-        field name followed by ``=``: scalars matching a shape field name
-        would still be followed by ``,``/``)`` boundary chars, not ``=``.
+        Checking only the first entry is insufficient: a positional value
+        that happens to match ``field_name=something`` (e.g. ``id=42``)
+        would be misclassified as a labeled tuple. Verifying two entries
+        eliminates the ambiguity.
         """
         name, end = self._peek_label_name()
         if name is None or end >= len(self.s) or self.s[end] != "=":
             return False
-        return any(f.name == name for f in shape.fields)
+        field_names = {f.name for f in shape.fields}
+        if name not in field_names:
+            return False
+        if len(shape.fields) < 2:
+            return True
+        # Scan forward past the first name=value to find the comma
+        j = end + 1
+        depth = 0
+        in_str = False
+        while j < len(self.s):
+            c = self.s[j]
+            if in_str:
+                if c == "\\":
+                    j += 1
+                elif c == '"':
+                    in_str = False
+            elif c == '"':
+                in_str = True
+            elif c in "([":
+                depth += 1
+            elif c in ")]":
+                if depth == 0:
+                    break
+                depth -= 1
+            elif c == "," and depth == 0:
+                break
+            j += 1
+        if j >= len(self.s) or self.s[j] != ",":
+            return True
+        j += 1
+        while j < len(self.s) and self.s[j] == " ":
+            j += 1
+        saved_i = self.i
+        self.i = j
+        name2, end2 = self._peek_label_name()
+        self.i = saved_i
+        if name2 is None or end2 >= len(self.s) or self.s[end2] != "=":
+            return False
+        return name2 in field_names
 
     def _peek_label_name(self) -> tuple[str | None, int]:
         if self._peek() == '"':
