@@ -140,6 +140,11 @@ export class ShapeParser {
     return shape;
   }
 
+  parsePrefix(): { shape: Shape; end: number } {
+    const shape = this.shape();
+    return { shape, end: this.i };
+  }
+
   private peek(): string {
     return this.s[this.i] ?? "";
   }

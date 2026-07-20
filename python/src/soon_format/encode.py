@@ -255,6 +255,25 @@ def _array_entry(
 
 ELIDE_THRESHOLD = 0.8
 
+_BOOL_TAG: object = object()
+
+
+def _elide_key(v: Any) -> Any:
+    if isinstance(v, bool):
+        return (_BOOL_TAG, v)
+    return v
+
+
+def _same_scalar(a: Any, b: Any) -> bool:
+    return type(a) is type(b) and a == b
+
+
+def _override_literal(value: Any) -> str:
+    lit = scalar_literal(value)
+    if not lit.startswith('"') and " " in lit:
+        return json.dumps(value, ensure_ascii=False)
+    return lit
+
 
 def _try_table(
     value: list[Any],
@@ -400,10 +419,11 @@ def _elide_candidate(
         # Hashable check: skip fields whose values include unhashable
         # types (shouldn't happen for scalars, but be defensive).
         try:
-            counts = Counter(row.get(f.name) for row in value)
+            counts = Counter(_elide_key(row.get(f.name)) for row in value)
         except TypeError:
             continue
-        mode_val, mode_count = counts.most_common(1)[0]
+        raw_key, mode_count = counts.most_common(1)[0]
+        mode_val = raw_key[1] if isinstance(raw_key, tuple) else raw_key
         if mode_count >= threshold:
             defaults[f.name] = mode_val
     if not defaults:
@@ -420,8 +440,8 @@ def _elide_candidate(
         base = _tuple(row, reduced, labeled, refs_by_hash or {})
         overrides: list[str] = []
         for k, default_val in defaults.items():
-            if row.get(k) != default_val:
-                overrides.append(f"+{field_name_token(k)}={scalar_literal(row[k])}")
+            if not _same_scalar(row.get(k), default_val):
+                overrides.append(f"+{field_name_token(k)}={_override_literal(row[k])}")
         if overrides:
             rows.append(base + " " + " ".join(overrides))
         else:

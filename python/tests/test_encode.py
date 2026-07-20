@@ -453,6 +453,74 @@ def test_decoder_rejects_default_colliding_with_field():
         decode(doc)
 
 
+def test_elide_multi_override_roundtrip():
+    data = {
+        "rows": [
+            *[{"id": i, "a": "x", "b": "y"} for i in range(1, 9)],
+            {"id": 9, "a": "q", "b": "z"},
+        ]
+    }
+    doc = encode(data, mode="soon", elide=True)
+    override_lines = [ln for ln in doc.split("\n") if "+" in ln]
+    assert len(override_lines) == 1
+    assert "+a=q" in override_lines[0]
+    assert "+b=z" in override_lines[0]
+    assert decode(doc) == data
+
+
+def test_elide_override_value_with_space():
+    data = {
+        "rows": [
+            *[{"id": i, "status": "active"} for i in range(1, 9)],
+            {"id": 9, "status": "past due"},
+        ]
+    }
+    doc = encode(data, mode="soon", elide=True)
+    assert '+status="past due"' in doc
+    assert decode(doc) == data
+
+
+def test_elide_bool_vs_int_zero():
+    data = {
+        "rows": [
+            *[{"id": i, "flag": False} for i in range(1, 10)],
+            {"id": 10, "flag": 0},
+        ]
+    }
+    doc = encode(data, mode="soon", elide=True)
+    assert "+flag=0" in doc
+    rt = decode(doc)
+    assert rt["rows"][-1]["flag"] == 0
+    assert type(rt["rows"][-1]["flag"]) is int
+
+
+def test_elide_bool_vs_int_one():
+    data = {
+        "rows": [
+            *[{"id": i, "flag": True} for i in range(1, 10)],
+            {"id": 10, "flag": 1},
+        ]
+    }
+    doc = encode(data, mode="soon", elide=True)
+    assert "+flag=1" in doc
+    rt = decode(doc)
+    assert rt["rows"][-1]["flag"] == 1
+    assert type(rt["rows"][-1]["flag"]) is int
+
+
+def test_elide_all_three_bugs_combined():
+    data = {
+        "rows": [
+            *[{"id": i, "a": "hello world", "b": "y", "flag": False} for i in range(1, 9)],
+            {"id": 9, "a": "other val", "b": "z", "flag": 0},
+        ]
+    }
+    doc = encode(data, mode="soon", elide=True)
+    assert decode(doc) == data
+    rt = decode(doc)
+    assert type(rt["rows"][-1]["flag"]) is int
+
+
 def _shared_office_employees(n_hq: int, n_other: int) -> dict:
     return {
         "employees": [
