@@ -1,4 +1,5 @@
 {
+  "v2": true,
   "input": {
     "employees": [
       {"id": 1, "name": "Ada", "office": {"city": "San Francisco", "zip": "94105"}},
