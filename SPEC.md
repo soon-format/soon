@@ -37,6 +37,12 @@ body       = root-object | root-array | json-fallback
 - All shape declarations appear before the body.
 - Encoders MUST NOT emit blank lines. Decoders SHOULD skip blank lines between
   entries (but not inside table rows) and tolerate a trailing newline.
+- **Comment lines** (v0.2) start with `#` (optionally after leading spaces) and
+  MUST be ignored by decoders — including when they appear between the rows of
+  a table. Encoders MUST NOT emit comment lines by default; they appear only
+  when an explicit option asks for them (currently `shape_hint_rows`, which
+  re-emits the relevant SHAPE declaration mid-table so the reader can
+  re-anchor). A comment line MUST NOT be the whole document.
 
 ### 2.1 JSON fallback
 
@@ -78,7 +84,13 @@ entry = key ": " scalar-value        ; scalar member
 ```
 
 - `key` is a token matching `[A-Za-z0-9_\-]+` or a JSON string otherwise.
-- `N` is the exact element count. Decoders MUST verify it.
+- `N` is the exact element count. Decoders MUST verify it. For **table**
+  arrays (i.e. `[N]<name>:`) v0.2 permits N to be omitted (`[]<name>:`)
+  as an ablation for the retrieval-accuracy harness (`row_count_guardrail`
+  encoder option). When N is absent, the table extends until the next
+  non-row line (a row begins with `(`; blanks and comment lines are
+  skipped between rows). Primitive arrays MUST always carry N — their
+  values are inlined on the header line and N is the only length signal.
 - After a table header, the next `N` lines are rows (§6), **without
   indentation**, regardless of the entry's depth.
 - Empty objects are encoded as raw members: `key: !{}`.
@@ -140,6 +152,101 @@ field-value = "_"                        ; absent (optional fields only)
 - Raw fields always carry the `!` prefix, even for scalars and `null`
   (`!null`), so raw `null` (value present) is distinguishable from field
   omission.
+
+### 6.1 Labeled tuples (v0.2)
+
+Encoders MAY emit tuples with explicit field labels
+(`(id=1,customer=(name=Ada,city=Boulder))`) when `mode="labeled"` is
+requested. Labeled tuples exist as an accuracy-insurance variant for LLM
+retrieval; per-array table-vs-fallback decisions still follow the local
+cost model (§7).
+
+Grammar:
+
+```
+labeled-tuple = "(" [labeled-field ("," labeled-field)*] ")"
+labeled-field = field-name "=" field-value
+```
+
+Rules:
+
+- The label MUST equal a `field-name` in the declared shape.
+- Labels MUST NOT repeat within a tuple.
+- Fields MAY appear in any order and MAY be omitted; a required field
+  that is absent is a decode error.
+- `_` MUST NOT appear inside a labeled tuple — omission expresses
+  absence.
+- Nested object, table, and primitive-array fields carry the same
+  labeled/positional convention as their enclosing tuple.
+
+Decoders MUST accept both forms. A tuple is labeled iff the first
+non-whitespace token after `(` matches `field-name "="` for some field
+of the declared shape; otherwise it is positional. Empty tuples `()`
+are only legal in labeled form (all fields optional).
+
+### 6.2 ELIDE — default-value elision (v0.2)
+
+Real-world payloads often have columns dominated by one value (e.g.
+`status=active` in 95% of rows). ELIDE removes such columns from the
+table body, declaring their default once in the shape declaration and
+emitting only the exceptions inline.
+
+Shape-declaration grammar (extends §3):
+
+```
+shape-decl-with-defaults = shape-decl [" | defaults: " default-list]
+default-list             = default ("," default)*
+default                  = field-name "=" scalar-literal
+```
+
+Row-override grammar (extends §6):
+
+```
+row = tuple *(" +" field-name "=" field-value)
+```
+
+Rules:
+
+- An elided field MUST NOT appear in the shape's field list AND MUST
+  appear in the defaults clause. It MUST have been present in every
+  original row (i.e. non-optional) — this preserves the "absent" vs
+  "defaulted" distinction.
+- Encoders MAY elide any required scalar field whose most common value
+  appears in a strict majority of rows (recommended threshold ≥ 80%),
+  and MUST use the cost model to confirm elision is net-positive.
+- Row overrides use the same value grammar as tuple field values.
+  Multiple overrides on a single row are joined by `" +"` (space,
+  plus, no comma).
+- Decoders MUST reject a default whose field also appears in the shape,
+  and MUST reject an override for a field not in the defaults list.
+- Hydration on decode: for each elided field, set to the row's override
+  value if present, otherwise the default.
+
+### 6.3 REF — repeated-subtree deduplication (v0.2)
+
+When the same object sub-tree appears multiple times in one table's
+OBJECT-typed field, REF lets it be declared once and referenced by
+name. Example: 200 employees sharing the same head-office address.
+
+Grammar (extends §2):
+
+```
+ref-decl = "REF &" ref-name " = " tuple
+ref-use  = "&" ref-name          ; appears where an object tuple would
+```
+
+- `ref-name` matches `[A-Za-z_][A-Za-z0-9_]*`.
+- REF declarations appear alongside SHAPE declarations at the top of
+  the document; encoders MUST emit them before the body.
+- A REF value is a tuple written per §6. Its shape is determined at
+  use site — the field of the enclosing tuple where the reference
+  appears provides the OBJECT shape used to parse the ref value.
+- Encoders MAY register a REF whenever ≥ 2 identical OBJECT sub-values
+  appear as the same field of the same table, and MUST use the cost
+  model to confirm the substitution is net-positive.
+- Decoders MUST reject references to undeclared REF names.
+- Each `&name` use produces an independent deep copy of the referenced
+  value — mutating one decoded row's value does not affect others.
 
 ## 7. Shape inference (encoding)
 

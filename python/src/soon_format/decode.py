@@ -12,10 +12,14 @@ from .shape import OBJECT, PARRAY, TABLE, Field, Shape, ShapeParser
 
 _json_decoder = json.JSONDecoder()
 
-SHAPE_DECL = re.compile(r"SHAPE ([A-Za-z_][A-Za-z0-9_]*) = (\{.*\})")
-ROOT_ARRAY = re.compile(r"\[(\d+)\](?:<([A-Za-z_][A-Za-z0-9_]*)>)?:(.*)")
-ENTRY_ARRAY = re.compile(r"\[(\d+)\](?:<([A-Za-z_][A-Za-z0-9_]*)>)?:(.*)")
+SHAPE_DECL = re.compile(r"SHAPE ([A-Za-z_][A-Za-z0-9_]*) = (.*)")
+REF_DECL = re.compile(r"REF &([A-Za-z_][A-Za-z0-9_]*) = (.*)")
+REF_NAME = re.compile(r"&([A-Za-z_][A-Za-z0-9_]*)")
+DEFAULTS_PREFIX = " | defaults: "
+ROOT_ARRAY = re.compile(r"\[(\d*)\](?:<([A-Za-z_][A-Za-z0-9_]*)>)?:(.*)")
+ENTRY_ARRAY = re.compile(r"\[(\d*)\](?:<([A-Za-z_][A-Za-z0-9_]*)>)?:(.*)")
 KEY_TOKEN = re.compile(r"[A-Za-z0-9_\-]+")
+FIELD_LABEL = re.compile(r"([A-Za-z0-9_\-]+)=")
 _MISSING = object()
 
 
@@ -36,18 +40,32 @@ class _Parser:
         self.lines = text.split("\n")
         self.i = 0
         self.shapes: dict[str, Shape] = {}
+        self.defaults: dict[str, dict[str, JsonValue]] = {}
+        # REF text is stored raw and parsed lazily at use site (§6.3):
+        # the enclosing OBJECT field supplies the shape.
+        self.refs: dict[str, str] = {}
 
     def parse(self) -> JsonValue:
         if not any(line.strip() for line in self.lines):
             raise SoonDecodeError("empty document")
         while self.i < len(self.lines):
-            m = SHAPE_DECL.fullmatch(self.lines[self.i])
-            if not m:
+            line = self.lines[self.i]
+            shape_m = SHAPE_DECL.fullmatch(line)
+            ref_m = REF_DECL.fullmatch(line) if shape_m is None else None
+            if shape_m is not None:
+                name = shape_m.group(1)
+                if name in self.shapes:
+                    raise SoonDecodeError(f"duplicate shape declaration: {name}")
+                self.shapes[name], self.defaults[name] = self._parse_shape_decl(
+                    shape_m.group(2)
+                )
+            elif ref_m is not None:
+                name = ref_m.group(1)
+                if name in self.refs:
+                    raise SoonDecodeError(f"duplicate REF declaration: {name}")
+                self.refs[name] = ref_m.group(2)
+            else:
                 break
-            name = m.group(1)
-            if name in self.shapes:
-                raise SoonDecodeError(f"duplicate shape declaration: {name}")
-            self.shapes[name] = ShapeParser(m.group(2)).parse()
             self.i += 1
         self._skip_blanks()
         if self.i >= len(self.lines):
@@ -56,7 +74,7 @@ class _Parser:
         value: JsonValue
         if m:
             self.i += 1
-            value = self._array_value(int(m.group(1)), m.group(2), m.group(3))
+            value = self._array_value(m.group(1), m.group(2), m.group(3))
         else:
             value = self._block(0)
             if not value:
@@ -66,15 +84,37 @@ class _Parser:
             raise SoonDecodeError(f"trailing content at line {self.i + 1}")
         return value
 
+    def _parse_shape_decl(
+        self, rest: str
+    ) -> tuple[Shape, dict[str, JsonValue]]:
+        parser = ShapeParser(rest)
+        shape = parser.parse_prefix()
+        tail = rest[parser.i:]
+        if tail == "":
+            return shape, {}
+        if not tail.startswith(DEFAULTS_PREFIX):
+            raise SoonDecodeError(
+                f"unexpected trailing content in SHAPE decl: {tail!r}"
+            )
+        defaults_str = tail[len(DEFAULTS_PREFIX):]
+        defaults = _parse_defaults(defaults_str)
+        shape_field_names = {f.name for f in shape.fields}
+        for k in defaults:
+            if k in shape_field_names:
+                raise SoonDecodeError(
+                    f"ELIDE default {k!r} collides with shape field of the same name"
+                )
+        return shape, defaults
+
     def _skip_blanks(self) -> None:
-        while self.i < len(self.lines) and not self.lines[self.i].strip():
+        while self.i < len(self.lines) and _is_skippable(self.lines[self.i]):
             self.i += 1
 
     def _block(self, depth: int) -> dict[str, JsonValue]:
         out: dict[str, JsonValue] = {}
         while self.i < len(self.lines):
             line = self.lines[self.i]
-            if not line.strip():
+            if _is_skippable(line):
                 self.i += 1
                 continue
             indent = len(line) - len(line.lstrip(" "))
@@ -91,7 +131,7 @@ class _Parser:
                 m = ENTRY_ARRAY.match(line, pos)
                 if not m or m.end() != len(line):
                     raise SoonDecodeError(f"malformed array entry at line {self.i}")
-                out[key] = self._array_value(int(m.group(1)), m.group(2), m.group(3))
+                out[key] = self._array_value(m.group(1), m.group(2), m.group(3))
             elif c == ":":
                 rest = line[pos + 1 :]
                 if rest == "":
@@ -131,7 +171,7 @@ class _Parser:
         return parse_literal(rest)
 
     def _array_value(
-        self, n: int, shape_name: str | None, rest: str
+        self, n_raw: str, shape_name: str | None, rest: str
     ) -> list[JsonValue]:
         if shape_name is not None:
             if rest.strip():
@@ -139,16 +179,37 @@ class _Parser:
             shape = self.shapes.get(shape_name)
             if shape is None:
                 raise SoonDecodeError(f"unknown shape: {shape_name}")
+            defaults = self.defaults.get(shape_name, {})
             rows: list[JsonValue] = []
+            if n_raw == "":
+                # Guardrail-off form ``[]<shape>:`` — read rows until the
+                # next line that isn't a row/blank/comment.
+                while self.i < len(self.lines):
+                    line = self.lines[self.i]
+                    if _is_skippable(line):
+                        self.i += 1
+                        continue
+                    if not line.startswith("("):
+                        break
+                    self.i += 1
+                    rows.append(_parse_row_with_defaults(line, self.i, shape, defaults, self.refs))
+                return rows
+            n = int(n_raw)
             for _ in range(n):
+                while self.i < len(self.lines) and _is_skippable(self.lines[self.i]):
+                    self.i += 1
                 if self.i >= len(self.lines):
                     raise SoonDecodeError(
                         f"expected {n} rows, found {len(rows)} (unexpected end of document)"
                     )
                 row = self.lines[self.i]
                 self.i += 1
-                rows.append(_TupleParser(row, self.i).parse_row(shape))
+                rows.append(_parse_row_with_defaults(row, self.i, shape, defaults, self.refs))
             return rows
+        # Primitive array — N is required (values are inlined on the header).
+        if n_raw == "":
+            raise SoonDecodeError("primitive array requires an element count")
+        n = int(n_raw)
         if rest == "":
             if n != 0:
                 raise SoonDecodeError(f"expected {n} elements, found 0")
@@ -159,6 +220,99 @@ class _Parser:
         if len(values) != n:
             raise SoonDecodeError(f"expected {n} elements, found {len(values)}")
         return values
+
+
+def _is_skippable(line: str) -> bool:
+    """Blank line or a ``#``-comment line (SPEC §2, v0.2)."""
+    stripped = line.lstrip(" ")
+    return stripped == "" or stripped.startswith("#")
+
+
+def _parse_defaults(s: str) -> dict[str, JsonValue]:
+    """Parse an ELIDE defaults clause: ``k1=v1,k2=v2`` (SPEC §6.2)."""
+    out: dict[str, JsonValue] = {}
+    tp = _TupleParser(s, 0)
+    while True:
+        name = _read_label_name(tp)
+        if tp.i >= len(tp.s) or tp.s[tp.i] != "=":
+            raise SoonDecodeError(
+                f"malformed ELIDE default (expected '=') at position {tp.i}"
+            )
+        tp.i += 1
+        # Defaults use the same scalar grammar as tuple values but never
+        # extend to raw/null-sentinel forms — enforce scalar-literal-only.
+        if tp._peek() in ("!", "("):
+            raise SoonDecodeError(
+                f"ELIDE default {name!r}: only scalar literals are allowed"
+            )
+        value = tp._scalar_token()
+        if name in out:
+            raise SoonDecodeError(f"duplicate default {name!r}")
+        out[name] = value
+        tp._skip_ws()
+        if tp.i >= len(tp.s):
+            break
+        if tp.s[tp.i] != ",":
+            raise SoonDecodeError(
+                f"expected ',' between ELIDE defaults at position {tp.i}"
+            )
+        tp.i += 1
+        tp._skip_ws()
+    return out
+
+
+def _parse_row_with_defaults(
+    row: str,
+    line_no: int,
+    shape: Shape,
+    defaults: dict[str, JsonValue],
+    refs: dict[str, str] | None = None,
+) -> dict[str, JsonValue]:
+    """Parse a table row, then apply any ELIDE overrides + defaults hydration."""
+    tp = _TupleParser(row, line_no, refs)
+    tuple_value = tp._tuple(shape)
+    overrides: dict[str, JsonValue] = {}
+    while tp.i < len(tp.s):
+        if tp.s[tp.i] != " ":
+            raise tp._err("expected ' +' before row override or end of row")
+        # Peek: only ``+`` starts an override; otherwise fall through as
+        # a trailing-content error via the final check below.
+        if tp.i + 1 >= len(tp.s) or tp.s[tp.i + 1] != "+":
+            break
+        tp.i += 2  # consume " +"
+        name = _read_label_name(tp)
+        if name not in defaults:
+            raise tp._err(f"override {name!r} not declared in ELIDE defaults")
+        if name in overrides:
+            raise tp._err(f"duplicate row override {name!r}")
+        if tp.i >= len(tp.s) or tp.s[tp.i] != "=":
+            raise tp._err(f"malformed override (expected '=') for {name!r}")
+        tp.i += 1
+        overrides[name] = tp._scalar_token()
+    if tp.i != len(tp.s):
+        raise tp._err("trailing characters after row")
+    for name, default_val in defaults.items():
+        tuple_value[name] = overrides.get(name, default_val)
+    return tuple_value
+
+
+def _read_label_name(tp: _TupleParser) -> str:
+    """Read a bare identifier or JSON-quoted string as a label name."""
+    if tp._peek() == '"':
+        try:
+            value, end = _json_decoder.raw_decode(tp.s, tp.i)
+        except ValueError as exc:
+            raise SoonDecodeError(f"bad quoted label name: {exc}") from exc
+        if not isinstance(value, str):
+            raise SoonDecodeError("label name must be a string")
+        tp.i = end
+        return value
+    m = FIELD_LABEL.match(tp.s, tp.i)
+    if not m:
+        raise SoonDecodeError(f"expected label name at position {tp.i}")
+    name = m.group(1)
+    tp.i = m.start() + len(name)
+    return name
 
 
 def _full_json(text: str, what: str) -> JsonValue:
@@ -174,10 +328,16 @@ def _full_json(text: str, what: str) -> JsonValue:
 class _TupleParser:
     """Cursor-based parser for row tuples and inline scalar lists (SPEC §6)."""
 
-    def __init__(self, s: str, line_no: int = 0) -> None:
+    def __init__(
+        self,
+        s: str,
+        line_no: int = 0,
+        refs: dict[str, str] | None = None,
+    ) -> None:
         self.s = s
         self.i = 0
         self.line_no = line_no
+        self.refs = refs or {}
 
     def _err(self, msg: str) -> SoonDecodeError:
         return SoonDecodeError(f"line {self.line_no}: {msg} (at column {self.i + 1})")
@@ -216,6 +376,12 @@ class _TupleParser:
     def _tuple(self, shape: Shape) -> dict[str, JsonValue]:
         self._skip_ws()
         self._expect("(")
+        # Peek for labeled form (SPEC §6.2). Empty ``()`` is only legal
+        # in labeled mode (all-optional shape); positional grammar requires
+        # a value per field.
+        self._skip_ws()
+        if self._peek() == ")" or self._is_labeled_head(shape):
+            return self._labeled_tuple(shape)
         out: dict[str, JsonValue] = {}
         for idx, f in enumerate(shape.fields):
             if idx:
@@ -226,6 +392,70 @@ class _TupleParser:
                 out[f.name] = value
         self._skip_ws()
         self._expect(")")
+        return out
+
+    def _is_labeled_head(self, shape: Shape) -> bool:
+        """True iff the next token is a shape field name followed by ``=``.
+
+        Accepts both bare tokens (``foo=``) and quoted names (``")="=``)
+        for non-token keys. Positional tuple values never start with a
+        field name followed by ``=``: scalars matching a shape field name
+        would still be followed by ``,``/``)`` boundary chars, not ``=``.
+        """
+        name, end = self._peek_label_name()
+        if name is None or end >= len(self.s) or self.s[end] != "=":
+            return False
+        return any(f.name == name for f in shape.fields)
+
+    def _peek_label_name(self) -> tuple[str | None, int]:
+        if self._peek() == '"':
+            try:
+                value, end = _json_decoder.raw_decode(self.s, self.i)
+            except ValueError:
+                return None, self.i
+            if not isinstance(value, str):
+                return None, self.i
+            return value, end
+        m = FIELD_LABEL.match(self.s, self.i)
+        if not m:
+            return None, self.i
+        # FIELD_LABEL captures the name-plus-``=``; return just the name and
+        # the position of the ``=`` so the caller can validate it.
+        return m.group(1), m.start() + len(m.group(1))
+
+    def _labeled_tuple(self, shape: Shape) -> dict[str, JsonValue]:
+        by_name = {f.name: f for f in shape.fields}
+        out: dict[str, JsonValue] = {}
+        first = True
+        while True:
+            self._skip_ws()
+            if first and self._peek() == ")":
+                self.i += 1
+                break
+            if not first:
+                self._expect(",")
+                self._skip_ws()
+            name, end = self._peek_label_name()
+            if name is None or end >= len(self.s) or self.s[end] != "=":
+                raise self._err("expected labeled field 'name='")
+            self.i = end + 1
+            f = by_name.get(name)
+            if f is None:
+                raise self._err(f"unknown field {name!r} in labeled tuple")
+            if name in out:
+                raise self._err(f"duplicate labeled field {name!r}")
+            value = self._field_value(f)
+            if value is _MISSING:
+                raise self._err(f"'_' not allowed for labeled field {name!r}")
+            out[name] = value
+            first = False
+            self._skip_ws()
+            if self._peek() == ")":
+                self.i += 1
+                break
+        for f in shape.fields:
+            if not f.optional and f.name not in out:
+                raise self._err(f"missing required field {f.name!r} in labeled tuple")
         return out
 
     def _field_value(self, f: Field) -> Any:
@@ -245,9 +475,29 @@ class _TupleParser:
             if f.kind != OBJECT or f.shape is None:
                 raise self._err(f"unexpected tuple for field {f.name!r}")
             return self._tuple(f.shape)
+        if c == "&":
+            if f.kind != OBJECT or f.shape is None:
+                raise self._err(f"unexpected REF for field {f.name!r}")
+            return self._ref_value(f)
         if c == "[":
             return self._list_value(f)
         return self._scalar_token()
+
+    def _ref_value(self, f: Field) -> Any:
+        import copy
+
+        m = REF_NAME.match(self.s, self.i)
+        if not m:
+            raise self._err("malformed REF use")
+        name = m.group(1)
+        if name not in self.refs:
+            raise self._err(f"unknown REF: {name!r}")
+        self.i = m.end()
+        assert f.shape is not None
+        # Re-parse the ref text under the field's OBJECT shape. Deep-copy
+        # so each row gets an independent value (SPEC §6.3).
+        inner = _TupleParser(self.refs[name], self.line_no, self.refs)._tuple(f.shape)
+        return copy.deepcopy(inner)
 
     def _list_value(self, f: Field) -> list[JsonValue]:
         self._expect("[")
