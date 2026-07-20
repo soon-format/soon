@@ -1,14 +1,13 @@
 {
   "input": {
     "items": [
-      {"emoji": "🌟", "name": "star"},
-      {"emoji": "🔥", "name": "fire"},
-      {"emoji": "✨", "name": "spark"}
+      {"emoji": "🌟", "meta": {"tag": "star"}},
+      {"emoji": "🔥", "meta": {"tag": "fire"}}
     ]
   },
   "options": {
     "mode": "auto",
     "tokenizer": "o200k_base"
   },
-  "expected": "{\"items\":[{\"emoji\":\"🌟\",\"name\":\"star\"},{\"emoji\":\"🔥\",\"name\":\"fire\"},{\"emoji\":\"✨\",\"name\":\"spark\"}]}"
+  "expected": "{\"items\":[{\"emoji\":\"🌟\",\"meta\":{\"tag\":\"star\"}},{\"emoji\":\"🔥\",\"meta\":{\"tag\":\"fire\"}}]}"
 }

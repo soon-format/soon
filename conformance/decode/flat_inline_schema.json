@@ -1,0 +1,11 @@
+{
+  "v2": true,
+  "input": "hikes[3]{id,name,km,sunny}:\n1,Blue Lake Trail,7.5,true\n2,Ridge Overlook,9.2,false\n3,Wildflower Loop,5.1,true",
+  "expected": {
+    "hikes": [
+      {"id": 1, "name": "Blue Lake Trail", "km": 7.5, "sunny": true},
+      {"id": 2, "name": "Ridge Overlook", "km": 9.2, "sunny": false},
+      {"id": 3, "name": "Wildflower Loop", "km": 5.1, "sunny": true}
+    ]
+  }
+}

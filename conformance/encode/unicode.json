@@ -16,5 +16,5 @@
   "options": {
     "mode": "soon"
   },
-  "expected": "\"şehir\": \"İzmir\"\nnotes: ![{\"t\":\"çok güzel\"},{\"t\":\"harika ✨\"},{\"t\":\"日本語\"}]"
+  "expected": "\"şehir\": \"İzmir\"\nnotes[3]{t}:\n\"çok güzel\"\n\"harika ✨\"\n\"日本語\""
 }
