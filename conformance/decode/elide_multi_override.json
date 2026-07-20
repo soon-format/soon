@@ -1,0 +1,12 @@
+{
+  "v2": true,
+  "description": "ELIDE document with multiple overrides on a single row, including a quoted value",
+  "input": "SHAPE r = {id} | defaults: a=x,b=y\nrows[3]<r>:\n(1)\n(2) +a=q +b=z\n(3) +a=\"past due\"",
+  "expected": {
+    "rows": [
+      {"id": 1, "a": "x", "b": "y"},
+      {"id": 2, "a": "q", "b": "z"},
+      {"id": 3, "a": "past due", "b": "y"}
+    ]
+  }
+}
