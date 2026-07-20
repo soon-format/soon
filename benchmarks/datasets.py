@@ -154,6 +154,68 @@ def l8_mixed_kinds() -> Any:
     return {"rows": rows}
 
 
+def l10_sparse_api_response() -> Any:
+    """API-list response with many mostly-default columns — the ELIDE
+    sweet spot (SPEC §6.2). Modeled after Stripe/Shopify list endpoints:
+    most rows in the "steady state" (status=active, currency=USD,
+    country=US, etc.); a minority diverges."""
+    rnd = random.Random(10)
+    rows = []
+    for i in range(100):
+        row = {
+            "id": i + 1,
+            "object": "customer",
+            "livemode": True,
+            "currency": "usd",
+            "country": "US",
+            "status": "active",
+            "delinquent": False,
+            "email": f"user{i+1}@example.com",
+            "plan": "starter",
+        }
+        # ~10% status divergence, ~5% currency/country divergence, ~8% delinquency.
+        if rnd.random() < 0.10:
+            row["status"] = rnd.choice(["past_due", "canceled", "unpaid"])
+        if rnd.random() < 0.05:
+            row["currency"] = rnd.choice(["eur", "gbp", "jpy"])
+            row["country"] = rnd.choice(["DE", "GB", "JP"])
+        if rnd.random() < 0.08:
+            row["delinquent"] = True
+        if rnd.random() < 0.03:
+            row["livemode"] = False
+        if rnd.random() < 0.15:
+            row["plan"] = rnd.choice(["pro", "enterprise", "team"])
+        rows.append(row)
+    return {"data": rows}
+
+
+def l11_shared_address_employees() -> Any:
+    """Employees where most share one of a few head-office addresses —
+    the REF sweet spot (SPEC §6.3). Modeled after HRIS/directory
+    payloads where head-count concentrates in a few sites."""
+    rnd = random.Random(11)
+    hq = {"street": "1 Market St", "city": "San Francisco", "state": "CA", "zip": "94105", "country": "US"}
+    dublin = {"street": "5 Grand Canal Sq", "city": "Dublin", "state": "D02", "zip": "D02WP70", "country": "IE"}
+    tokyo = {"street": "1-9-2 Marunouchi", "city": "Tokyo", "state": "Chiyoda", "zip": "100-6390", "country": "JP"}
+    offices = [hq, hq, hq, hq, hq, hq, dublin, dublin, tokyo]  # ~66% HQ, ~22% Dublin, ~11% Tokyo
+    employees = []
+    for i in range(90):
+        office = rnd.choice(offices) if rnd.random() < 0.9 else {
+            "street": f"{rnd.randrange(1, 200)} Remote Ln",
+            "city": rnd.choice(["Boulder", "Austin", "Berlin"]),
+            "state": rnd.choice(["CO", "TX", "BE"]),
+            "zip": f"{rnd.randrange(10000, 99999)}",
+            "country": rnd.choice(["US", "US", "DE"]),
+        }
+        employees.append({
+            "id": i + 1,
+            "name": rnd.choice(NAMES),
+            "role": rnd.choice(ROLES),
+            "office": office,
+        })
+    return {"employees": employees}
+
+
 def l9_adversarial_nonuniform() -> Any:
     rnd = random.Random(9)
     out: list[Any] = []
@@ -180,4 +242,6 @@ DATASETS = [
     ("L7 semi-uniform", "event log, optional fields", l7_semi_uniform),
     ("L8 mixed kinds", "field mixes object/string/array/null", l8_mixed_kinds),
     ("L9 adversarial", "irregular everything (worst case)", l9_adversarial_nonuniform),
+    ("L10 sparse API response", "100 rows with ~90% default columns (ELIDE showcase)", l10_sparse_api_response),
+    ("L11 shared-address employees", "90 employees, ~90% share few offices (REF showcase)", l11_shared_address_employees),
 ]

@@ -189,3 +189,379 @@ def test_tokenizer_flips_local_decision():
 def test_tokenizer_deterministic():
     pytest.importorskip("tiktoken")
     assert encode(HIKES, tokenizer="o200k_base") == encode(HIKES, tokenizer="o200k_base")
+
+
+def test_labeled_mode_golden():
+    doc = encode(HIKES, mode="labeled")
+    assert doc == (
+        "SHAPE hikes = {id,name,km,sunny}\n"
+        "context:\n"
+        "  task: Our favorite hikes together\n"
+        "  location: Boulder\n"
+        "friends[3]: ana,luis,sam\n"
+        "hikes[3]<hikes>:\n"
+        "(id=1,name=Blue Lake Trail,km=7.5,sunny=true)\n"
+        "(id=2,name=Ridge Overlook,km=9.2,sunny=false)\n"
+        "(id=3,name=Wildflower Loop,km=5.1,sunny=true)"
+    )
+    assert decode(doc) == HIKES
+
+
+def test_labeled_mode_optional_omitted():
+    data = {
+        "users": [
+            {"id": 1, "name": "Ada", "email": "ada@x.co"},
+            {"id": 2, "name": "Linus"},
+            {"id": 3, "name": "Grace", "email": "grace@x.co"},
+            {"id": 4, "name": "Alan"},
+            {"id": 5, "name": "Barbara", "email": "b@x.co"},
+        ]
+    }
+    doc = encode(data, mode="labeled")
+    assert "(id=2,name=Linus)" in doc
+    assert "(id=4,name=Alan)" in doc
+    assert "email=" in doc
+    assert "_" not in doc.split("\n", 1)[1]  # no positional sentinel in body
+    assert decode(doc) == data
+
+
+def test_labeled_mode_nested_and_tables():
+    data = {
+        "orders": [
+            {
+                "id": 1,
+                "customer": {"name": "Ada", "city": "Boulder"},
+                "items": [{"sku": "A1", "qty": 2}, {"sku": "B2", "qty": 1}],
+            },
+            {
+                "id": 2,
+                "customer": {"name": "Linus", "city": "Helsinki"},
+                "items": [{"sku": "A1", "qty": 3}, {"sku": "C3", "qty": 5}],
+            },
+            {
+                "id": 3,
+                "customer": {"name": "Grace", "city": "Arlington"},
+                "items": [{"sku": "A1", "qty": 1}, {"sku": "B2", "qty": 2}],
+            },
+        ]
+    }
+    doc = encode(data, mode="labeled")
+    assert "customer=(name=Ada,city=Boulder)" in doc
+    assert "items=[(sku=A1,qty=2),(sku=B2,qty=1)]" in doc
+    assert decode(doc) == data
+
+
+def test_labeled_mode_rejects_underscore():
+    from soon_format import SoonDecodeError
+
+    doc = "SHAPE r = {?a,?b}\nrows[1]<r>:\n(a=1,_)"
+    with pytest.raises(SoonDecodeError):
+        decode(doc)
+
+
+def test_labeled_mode_unknown_field_rejected():
+    from soon_format import SoonDecodeError
+
+    doc = "SHAPE r = {id,name}\nrows[1]<r>:\n(id=1,name=Ada,extra=oops)"
+    with pytest.raises(SoonDecodeError):
+        decode(doc)
+
+
+def test_labeled_mode_missing_required_rejected():
+    from soon_format import SoonDecodeError
+
+    doc = "SHAPE r = {id,name}\nrows[1]<r>:\n(id=1)"
+    with pytest.raises(SoonDecodeError):
+        decode(doc)
+
+
+def test_labeled_mode_unknown_mode_rejected():
+    with pytest.raises(ValueError):
+        encode({"x": 1}, mode="not_a_mode")
+
+
+def _long_hikes(n: int) -> dict:
+    return {
+        "hikes": [
+            {"id": i, "name": f"Trail{i}", "km": float(i), "sunny": i % 2 == 0}
+            for i in range(1, n + 1)
+        ]
+    }
+
+
+def test_shape_hint_rows_interspersed_and_roundtrips():
+    doc = encode(_long_hikes(10), mode="soon", shape_hint_rows=3)
+    lines = doc.split("\n")
+    comment_lines = [ln for ln in lines if ln.startswith("#")]
+    assert comment_lines, "expected at least one hint comment line"
+    assert all(ln == "# SHAPE hikes = {id,name,km,sunny}" for ln in comment_lines)
+    # 10 rows, every=3, floor((10-1)/3)=3 → hints before rows 3, 6, 9
+    assert len(comment_lines) == 3
+    assert decode(doc) == _long_hikes(10)
+
+
+def test_shape_hint_rows_skipped_for_short_tables():
+    # 4 rows with every=3 → 4 < 2*3, no reminders.
+    doc = encode(_long_hikes(4), mode="soon", shape_hint_rows=3)
+    assert "#" not in doc
+    assert decode(doc) == _long_hikes(4)
+
+
+def test_shape_hint_rows_composes_with_labeled():
+    doc = encode(_long_hikes(6), mode="labeled", shape_hint_rows=2)
+    assert "# SHAPE hikes = {id,name,km,sunny}" in doc
+    assert "(id=1,name=Trail1" in doc
+    assert decode(doc) == _long_hikes(6)
+
+
+def test_shape_hint_rows_zero_rejected():
+    with pytest.raises(ValueError):
+        encode({"x": 1}, shape_hint_rows=0)
+
+
+def test_row_count_guardrail_off_omits_n():
+    data = _long_hikes(6)
+    doc = encode(data, mode="soon", row_count_guardrail=False)
+    assert "hikes[]<hikes>:" in doc
+    assert "[6]" not in doc
+    assert decode(doc) == data
+
+
+def test_row_count_guardrail_off_roundtrips_with_labeled_and_hints():
+    data = _long_hikes(8)
+    doc = encode(
+        data, mode="labeled", shape_hint_rows=3, row_count_guardrail=False
+    )
+    assert "hikes[]<hikes>:" in doc
+    assert "# SHAPE hikes = " in doc
+    assert "(id=1,name=Trail1" in doc
+    assert decode(doc) == data
+
+
+def test_row_count_guardrail_off_root_array():
+    data = [{"a": i, "b": i * i} for i in range(1, 5)]
+    doc = encode(data, mode="soon", row_count_guardrail=False)
+    assert doc.startswith("SHAPE item = ")
+    assert "\n[]<item>:" in doc
+    assert decode(doc) == data
+
+
+def test_primitive_array_still_requires_count():
+    from soon_format import SoonDecodeError
+
+    # Encoder never emits ``[]`` for primitive arrays; decoder still rejects
+    # a hand-crafted document that tries it.
+    with pytest.raises(SoonDecodeError):
+        decode("nums[]: 1,2,3")
+
+
+def test_guardrail_off_terminates_at_dedent_or_eof():
+    data = {"rows": [{"a": 1}, {"a": 2}, {"a": 3}], "next": "sentinel"}
+    doc = encode(data, mode="soon", row_count_guardrail=False)
+    # ``next: sentinel`` is a normal entry after the rows block; unindented
+    # non-``(`` line terminates the guardrail-less table.
+    assert decode(doc) == data
+
+
+def _sparse_users(n_active: int, n_other: int) -> dict:
+    users = [
+        {"id": i + 1, "name": f"u{i+1}", "status": "active"}
+        for i in range(n_active)
+    ]
+    users += [
+        {"id": n_active + i + 1, "name": f"u{n_active+i+1}", "status": "cancelled"}
+        for i in range(n_other)
+    ]
+    return {"users": users}
+
+
+def test_elide_drops_majority_column():
+    # 9/10 active → status field elides.
+    data = _sparse_users(9, 1)
+    doc = encode(data, mode="soon", elide=True)
+    assert "| defaults: status=active" in doc
+    assert "+status=cancelled" in doc
+    # Non-override rows have no trailing +override.
+    active_rows = [ln for ln in doc.split("\n") if ln.startswith("(") and "+" not in ln]
+    assert len(active_rows) == 9
+    assert decode(doc) == data
+
+
+def test_elide_no_op_when_below_threshold():
+    # 6/10 active → below 80% → no elision.
+    data = _sparse_users(6, 4)
+    doc = encode(data, mode="soon", elide=True)
+    assert "| defaults" not in doc
+    assert decode(doc) == data
+
+
+def test_elide_off_by_default():
+    data = _sparse_users(9, 1)
+    doc = encode(data, mode="soon")
+    assert "| defaults" not in doc
+    assert decode(doc) == data
+
+
+def test_elide_composes_with_labeled():
+    data = _sparse_users(9, 1)
+    doc = encode(data, mode="labeled", elide=True)
+    assert "| defaults: status=active" in doc
+    assert "(id=1,name=u1)" in doc
+    assert "+status=cancelled" in doc
+    assert decode(doc) == data
+
+
+def test_elide_composes_with_guardrail_off():
+    data = _sparse_users(9, 1)
+    doc = encode(data, mode="soon", elide=True, row_count_guardrail=False)
+    assert "users[]<users>:" in doc
+    assert "| defaults: status=active" in doc
+    assert decode(doc) == data
+
+
+def test_elide_multi_column():
+    data = {
+        "rows": [
+            {"id": i + 1, "a": "x", "b": "y"} for i in range(8)
+        ] + [
+            {"id": 9, "a": "x", "b": "z"},
+            {"id": 10, "a": "q", "b": "y"},
+        ]
+    }
+    doc = encode(data, mode="soon", elide=True)
+    assert "| defaults: a=x,b=y" in doc or "| defaults: b=y,a=x" in doc
+    assert decode(doc) == data
+
+
+def test_decoder_rejects_override_of_undeclared_field():
+    from soon_format import SoonDecodeError
+
+    doc = (
+        "SHAPE r = {id,name} | defaults: status=active\n"
+        "rows[1]<r>:\n"
+        "(1,Ada) +nonexistent=oops"
+    )
+    with pytest.raises(SoonDecodeError):
+        decode(doc)
+
+
+def test_decoder_rejects_default_colliding_with_field():
+    from soon_format import SoonDecodeError
+
+    doc = "SHAPE r = {id,name,status} | defaults: status=active\nrows[0]<r>:"
+    with pytest.raises(SoonDecodeError):
+        decode(doc)
+
+
+def _shared_office_employees(n_hq: int, n_other: int) -> dict:
+    return {
+        "employees": [
+            {"id": i + 1, "name": f"emp{i+1}",
+             "office": {"city": "San Francisco", "zip": "94105"}}
+            for i in range(n_hq)
+        ] + [
+            {"id": n_hq + i + 1, "name": f"emp{n_hq+i+1}",
+             "office": {"city": "Helsinki", "zip": "00100"}}
+            for i in range(n_other)
+        ]
+    }
+
+
+def test_ref_hoists_repeated_subtree():
+    data = _shared_office_employees(10, 1)
+    doc = encode(data, mode="soon", ref=True)
+    assert "REF &office = (San Francisco," in doc
+    assert doc.count("&office") == 11  # 1 decl + 10 uses
+    assert "(11,emp11,(Helsinki," in doc  # non-shared row emits inline
+    assert decode(doc) == data
+
+
+def test_ref_off_by_default():
+    data = _shared_office_employees(10, 1)
+    doc = encode(data, mode="soon")
+    assert "REF " not in doc
+    assert decode(doc) == data
+
+
+def test_ref_not_applied_when_no_repeats():
+    data = {
+        "orders": [
+            {"id": i + 1, "customer": {"name": f"c{i+1}", "city": "X"}}
+            for i in range(5)
+        ]
+    }
+    doc = encode(data, mode="soon", ref=True)
+    assert "REF " not in doc
+    assert decode(doc) == data
+
+
+def test_ref_composes_with_labeled():
+    data = _shared_office_employees(10, 1)
+    doc = encode(data, mode="labeled", ref=True)
+    assert "REF &office = " in doc
+    assert "office=&office" in doc
+    assert decode(doc) == data
+
+
+def test_ref_deep_copy_isolation():
+    # Mutating one row's decoded value must not affect others.
+    data = _shared_office_employees(3, 0)
+    doc = encode(data, mode="soon", ref=True)
+    got = decode(doc)
+    got["employees"][0]["office"]["city"] = "MUTATED"
+    assert got["employees"][1]["office"]["city"] == "San Francisco"
+
+
+def test_ref_unknown_reference_rejected():
+    from soon_format import SoonDecodeError
+
+    doc = (
+        "SHAPE r = {id,customer:{name}}\n"
+        "rows[1]<r>:\n"
+        "(1,&nowhere)"
+    )
+    with pytest.raises(SoonDecodeError):
+        decode(doc)
+
+
+def test_ref_duplicate_decl_rejected():
+    from soon_format import SoonDecodeError
+
+    doc = (
+        "SHAPE r = {id,customer:{name}}\n"
+        "REF &x = (Ada)\n"
+        "REF &x = (Linus)\n"
+        "rows[1]<r>:\n"
+        "(1,&x)"
+    )
+    with pytest.raises(SoonDecodeError):
+        decode(doc)
+
+
+def test_ref_cost_gate_rejects_tiny_promotion():
+    # Sub-tree tiny (single 1-char scalar) and count small — REF overhead
+    # exceeds savings. Encoder must NOT promote.
+    data = {
+        "rows": [
+            {"id": i + 1, "meta": {"a": 1}} for i in range(3)
+        ]
+    }
+    doc = encode(data, mode="soon", ref=True)
+    assert "REF " not in doc
+    assert decode(doc) == data
+
+
+def test_comment_lines_ignored_by_decoder():
+    # A hand-written comment between entries and inside a table.
+    doc = (
+        "SHAPE t = {a,b}\n"
+        "# top-level comment\n"
+        "x: 1\n"
+        "  # indented comment (still skipped)\n"
+        "rows[2]<t>:\n"
+        "# between-rows comment\n"
+        "(1,2)\n"
+        "# another between-rows comment\n"
+        "(3,4)"
+    )
+    assert decode(doc) == {"x": 1, "rows": [{"a": 1, "b": 2}, {"a": 3, "b": 4}]}

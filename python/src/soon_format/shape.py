@@ -134,6 +134,12 @@ class ShapeParser:
             raise SoonDecodeError(f"trailing characters in shape expression: {self.s[self.i:]!r}")
         return shape
 
+    def parse_prefix(self) -> Shape:
+        """Parse just the shape expression; leave any trailing content
+        (e.g. an ELIDE ``| defaults: ...`` clause) for the caller to
+        consume from ``self.i``."""
+        return self._shape()
+
     def _peek(self) -> str:
         return self.s[self.i] if self.i < len(self.s) else ""
 

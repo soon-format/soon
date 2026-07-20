@@ -1,0 +1,22 @@
+{
+  "v2": true,
+  "input": {
+    "users": [
+      {"id": 1, "name": "Ada", "status": "active"},
+      {"id": 2, "name": "Linus", "status": "active"},
+      {"id": 3, "name": "Grace", "status": "active"},
+      {"id": 4, "name": "Alan", "status": "active"},
+      {"id": 5, "name": "Barbara", "status": "active"},
+      {"id": 6, "name": "Ken", "status": "active"},
+      {"id": 7, "name": "Denis", "status": "active"},
+      {"id": 8, "name": "Bjarne", "status": "active"},
+      {"id": 9, "name": "James", "status": "active"},
+      {"id": 10, "name": "Guido", "status": "cancelled"}
+    ]
+  },
+  "options": {
+    "mode": "soon",
+    "elide": true
+  },
+  "expected": "SHAPE users = {id,name} | defaults: status=active\nusers[10]<users>:\n(1,Ada)\n(2,Linus)\n(3,Grace)\n(4,Alan)\n(5,Barbara)\n(6,Ken)\n(7,Denis)\n(8,Bjarne)\n(9,James)\n(10,Guido) +status=cancelled"
+}

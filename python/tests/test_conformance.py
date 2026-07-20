@@ -28,7 +28,7 @@ def test_decode(case):
 
 @pytest.mark.parametrize("case", _fixtures("roundtrip"))
 def test_roundtrip(case):
-    for mode in ("auto", "soon"):
+    for mode in ("auto", "soon", "labeled"):
         assert decode(encode(case["input"], mode=mode)) == case["input"]
 
 

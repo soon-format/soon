@@ -11,6 +11,7 @@ const ROOT = fileURLToPath(new URL("../../../../conformance", import.meta.url));
 
 interface Fixture {
   name: string;
+  v2?: boolean;
   input: unknown;
   options?: { mode?: "auto" | "soon" | "json"; tokenizer?: string };
   expected?: unknown;
@@ -28,6 +29,10 @@ function fixtures(sub: string): Fixture[] {
 
 describe("conformance: encode", () => {
   for (const c of fixtures("encode")) {
+    if (c.v2) {
+      it.skip(c.name, () => {});
+      continue;
+    }
     it(c.name, () => {
       expect(encode(c.input as never, c.options)).toBe(c.expected);
     });
@@ -36,6 +41,10 @@ describe("conformance: encode", () => {
 
 describe("conformance: decode", () => {
   for (const c of fixtures("decode")) {
+    if (c.v2) {
+      it.skip(c.name, () => {});
+      continue;
+    }
     it(c.name, () => {
       expect(decode(c.input as string)).toEqual(c.expected);
     });

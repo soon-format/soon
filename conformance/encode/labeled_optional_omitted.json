@@ -1,0 +1,16 @@
+{
+  "v2": true,
+  "input": {
+    "users": [
+      {"id": 1, "name": "Ada", "email": "ada@x.co"},
+      {"id": 2, "name": "Linus"},
+      {"id": 3, "name": "Grace", "email": "grace@x.co"},
+      {"id": 4, "name": "Alan"},
+      {"id": 5, "name": "Barbara", "email": "b@x.co"}
+    ]
+  },
+  "options": {
+    "mode": "labeled"
+  },
+  "expected": "SHAPE users = {id,name,?email}\nusers[5]<users>:\n(id=1,name=Ada,email=ada@x.co)\n(id=2,name=Linus)\n(id=3,name=Grace,email=grace@x.co)\n(id=4,name=Alan)\n(id=5,name=Barbara,email=b@x.co)"
+}

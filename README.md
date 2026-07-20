@@ -157,7 +157,7 @@ That's it. Current-generation models (GPT-4o, Claude Sonnet/Opus 4.x, Gemini 2.x
 ## When SOON is not the right choice
 
 - **Flat tabular data with no nesting.** CSV is smaller. [TOON](https://github.com/toon-format/toon) is great here. SOON is essentially tied — use whichever fits your stack.
-- **Retrieval-accuracy-critical tasks** where positional values may hurt. Positional tuples are denser than key-value pairs; models occasionally miss which slot is which on very long rows. An [accuracy benchmark harness](https://github.com/soon-format/soon/issues/8) is planned for v0.2 — until then, evaluate on your task.
+- **Retrieval-accuracy-critical tasks with very long tables and small models.** Positional tuples are denser than key-value pairs; small models occasionally miss which slot is which on rows dozens of fields wide. If accuracy dominates cost for your use case, encode with `mode="labeled"` (`(id=1,name=Ada,...)`) — it costs more tokens but every value carries its field name. The [retrieval-accuracy harness](docs/accuracy.md) lets you measure the trade-off on your own data.
 - **Tiny payloads.** `auto` mode already hands you compact JSON in this case (that's the never-worse guarantee working as intended). No action needed.
 
 ---
@@ -198,7 +198,9 @@ The [normative spec](SPEC.md) is 200 lines. The [conformance suite](conformance/
 | [`python/`](python/) | [`soon-format`](https://pypi.org/project/soon-format/) on PyPI — reference implementation |
 | [`ts/packages/soon`](ts/packages/soon) | [`@soon-format/soon`](https://www.npmjs.com/package/@soon-format/soon) on npm |
 | [`ts/packages/cli`](ts/packages/cli) | [`@soon-format/cli`](https://www.npmjs.com/package/@soon-format/cli) on npm (`npx`-runnable) |
-| [`benchmarks/`](benchmarks/) | Reproducible size + speed benchmarks (nine datasets, three baselines) |
+| [`benchmarks/`](benchmarks/) | Reproducible size + speed benchmarks (eleven datasets, three baselines) |
+| [`benchmarks/accuracy/`](benchmarks/accuracy/) | LLM retrieval-accuracy harness — 232 questions × 8 formats × N models |
+| [`docs/accuracy.md`](docs/accuracy.md) | Published accuracy results and methodology |
 | [`tools/`](tools/) | Fixture generator, cross-implementation differential test |
 
 Both implementations pass the same 41 conformance fixtures byte-for-byte, plus property-based round-trip tests (`decode(encode(x)) == x`, Hypothesis / seeded fuzzing) and a differential CI job that byte-compares encoder outputs across languages.
