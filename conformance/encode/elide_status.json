@@ -1,4 +1,5 @@
 {
+  "v2": true,
   "input": {
     "users": [
       {"id": 1, "name": "Ada", "status": "active"},
