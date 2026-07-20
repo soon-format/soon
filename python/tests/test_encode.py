@@ -254,9 +254,11 @@ def test_labeled_mode_nested_and_tables():
 def test_labeled_mode_rejects_underscore():
     from soon_format import SoonDecodeError
 
-    doc = "SHAPE r = {?a,?b}\nrows[1]<r>:\n(a=1,_)"
+    doc = "SHAPE r = {?a,?b}\nrows[1]<r>:\n(a=1,b=_)"
     with pytest.raises(SoonDecodeError):
         decode(doc)
+    doc2 = "SHAPE r = {?a,?b}\nrows[1]<r>:\n(a=1,_)"
+    assert decode(doc2) == {"rows": [{"a": "a=1"}]}
 
 
 def test_labeled_mode_unknown_field_rejected():
@@ -519,6 +521,28 @@ def test_elide_all_three_bugs_combined():
     assert decode(doc) == data
     rt = decode(doc)
     assert type(rt["rows"][-1]["flag"]) is int
+
+
+def test_trailing_whitespace_tolerated():
+    doc = "SHAPE t = {id,name}\nrows[2]<t>:\n(1,Ada)  \n(2,Linus) "
+    assert decode(doc) == {"rows": [{"id": 1, "name": "Ada"}, {"id": 2, "name": "Linus"}]}
+
+
+def test_trailing_whitespace_tolerated_with_elide():
+    doc = "SHAPE t = {id} | defaults: s=x\nrows[1]<t>:\n(1) +s=y  "
+    assert decode(doc) == {"rows": [{"id": 1, "s": "y"}]}
+
+
+def test_positional_value_matching_field_name():
+    doc = "SHAPE t = {id,data}\nrows[1]<t>:\n(id=42,hello)"
+    result = decode(doc)
+    assert result == {"rows": [{"id": "id=42", "data": "hello"}]}
+
+
+def test_labeled_still_detected():
+    doc = "SHAPE t = {id,data}\nrows[1]<t>:\n(id=42,data=hello)"
+    result = decode(doc)
+    assert result == {"rows": [{"id": 42, "data": "hello"}]}
 
 
 def _shared_office_employees(n_hq: int, n_other: int) -> dict:

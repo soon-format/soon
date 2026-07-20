@@ -1,0 +1,10 @@
+{
+  "description": "Trailing whitespace on table rows should be tolerated",
+  "input": "SHAPE u = {id,name}\nusers[2]<u>:\n(1,Ada)  \n(2,Linus) ",
+  "expected": {
+    "users": [
+      {"id": 1, "name": "Ada"},
+      {"id": 2, "name": "Linus"}
+    ]
+  }
+}
