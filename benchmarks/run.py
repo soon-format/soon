@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Token-efficiency benchmark: SOON vs JSON / YAML / TOON, simple to hard.
+"""Token-efficiency benchmark: SOON vs JSON / YAML / TOON / GCF, simple to hard.
 
 Usage (from repo root):
-    PYTHONPATH=python/src python3 benchmarks/run.py [--tokenizer o200k_base]
+    python3 benchmarks/run.py [--tokenizer o200k_base]
+
+Requires: pip install soon-format[dev] gcf-python
 
 - Sizes are always reported in characters. Pass ``--tokenizer`` to add a
   second table measured in real BPE tokens. Bundled encodings
   (``o200k_base``) load from the wheel and never touch the network.
-- TOON is encoded with the ``toon-py`` package. It is a hard dep of the
-  benchmark — install it with ``pip install soon-format[dev]`` (which
-  pins it) or ``pip install toon-py``. Silently dropping the column
-  regressed the shipped comparison story and is no longer tolerated.
+- TOON is encoded with the ``toon-py`` package.
+- GCF is encoded with the ``gcf-python`` package (generic profile).
 - Every SOON encoding is verified lossless (``decode(encode(x)) == x``)
   and never-worse-than-compact-JSON in the *cost-function unit the
   encoder actually used* to make its auto-mode decision.
@@ -27,7 +27,6 @@ from pathlib import Path
 from typing import Any, Callable
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "python" / "src"))
 sys.path.insert(0, str(ROOT / "benchmarks"))
 
 from datasets import DATASETS  # noqa: E402
@@ -59,6 +58,14 @@ def formatters(tokenizer: str | None) -> dict[str, Callable[[Any], str]]:
             "install with: pip install 'soon-format[dev]' (or: pip install toon-py)"
         ) from exc
     fmts["toon"] = lambda d: toon_encode(d)
+    try:
+        from gcf import encode_generic as gcf_encode
+    except ImportError as exc:  # pragma: no cover
+        raise SystemExit(
+            "benchmark requires gcf-python for the GCF comparison column; "
+            "install with: pip install gcf-python"
+        ) from exc
+    fmts["gcf"] = lambda d: gcf_encode(d)
     # SOON's auto-mode decisions use the same tokenizer the bench measures with.
     fmts["soon"] = lambda d: soon_encode(d, tokenizer=tokenizer)
     return fmts
