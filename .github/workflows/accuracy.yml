@@ -2,7 +2,6 @@ name: Retrieval accuracy
 
 on:
   schedule:
-    # Nightly at 06:00 UTC — mock provider only, verifies harness plumbing.
     - cron: "0 6 * * *"
   workflow_dispatch:
     inputs:
@@ -28,10 +27,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: soon-format/soon-python
+          path: soon-python
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - run: pip install -e "python[dev]"
+      - run: pip install -e "soon-python[dev]"
       - name: Mock harness end-to-end
         run: python3 benchmarks/accuracy/run.py --provider mock:fixture
       - name: Upload results
@@ -50,10 +53,14 @@ jobs:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: soon-format/soon-python
+          path: soon-python
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - run: pip install -e "python[dev]" openai anthropic google-genai
+      - run: pip install -e "soon-python[dev]" openai anthropic google-genai
       - name: Full accuracy run
         run: |
           set -eux

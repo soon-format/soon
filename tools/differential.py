@@ -2,8 +2,15 @@
 """Differential test: Python and TypeScript encoders must produce
 byte-identical output for every conformance input.
 
-Requires the TS workspace to be built (`npm run build`).
+Requires sibling repos:
+  - ../soon-python:      pip install -e ../soon-python
+  - ../soon-typescript:  cd ../soon-typescript && npm ci && npm run build
+
 Run from the repo root: python3 tools/differential.py
+
+Note: tests/cross-language-matrix.py is the full NxN matrix version of
+this test that also cross-decodes. This script is the simpler encode-only
+variant kept for quick local checks.
 """
 
 from __future__ import annotations
@@ -14,20 +21,16 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "python" / "src"))
 
 from soon_format import encode  # noqa: E402
 
-# Modes both implementations agree on. v0.2 mechanisms (``labeled``, and
-# later ELIDE/REF) land in Python first per SPEC §6.1; TS catches up in
-# a follow-up, at which point the mode is added here.
 _V01_MODES = {"auto", "soon", "json"}
-# Encoder options the TS port doesn't know about yet; any fixture that
-# sets one is Python-only until parity ships.
 _V02_ONLY_OPTIONS = {"shape_hint_rows", "row_count_guardrail", "elide", "ref"}
 
+TS_ROOT = ROOT.parent / "soon-typescript"
+
 NODE_SNIPPET = """
-const { encode } = await import(new URL("../ts/packages/soon/dist/index.js", import.meta.url));
+const { encode } = await import("./dist/index.js");
 const { readFileSync } = await import("node:fs");
 const cases = JSON.parse(readFileSync(0, "utf-8"));
 process.stdout.write(JSON.stringify(cases.map((c) => encode(c.input, c.options ?? {}))));
@@ -35,6 +38,10 @@ process.stdout.write(JSON.stringify(cases.map((c) => encode(c.input, c.options ?
 
 
 def main() -> int:
+    if not TS_ROOT.exists():
+        print(f"error: {TS_ROOT} not found — clone soon-typescript alongside this repo")
+        return 2
+
     cases = []
     for f in sorted((ROOT / "conformance" / "encode").glob("*.json")):
         fixture = json.loads(f.read_text(encoding="utf-8"))
@@ -54,7 +61,7 @@ def main() -> int:
         input=json.dumps(cases),
         capture_output=True,
         text=True,
-        cwd=ROOT / "tools",
+        cwd=TS_ROOT,
         check=True,
     )
     ts_outputs = json.loads(result.stdout)
