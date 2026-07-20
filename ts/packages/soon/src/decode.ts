@@ -13,10 +13,12 @@ import {
 } from "./shape.js";
 import type { JsonObject, JsonValue } from "./types.js";
 
-const SHAPE_DECL = /^SHAPE ([A-Za-z_][A-Za-z0-9_]*) = (\{.*\})$/;
-const ROOT_ARRAY = /^\[(\d+)\](?:<([A-Za-z_][A-Za-z0-9_]*)>)?:(.*)$/;
-const ENTRY_ARRAY = /\[(\d+)\](?:<([A-Za-z_][A-Za-z0-9_]*)>)?:(.*)/y;
+const SHAPE_DECL = /^SHAPE ([A-Za-z_][A-Za-z0-9_]*) = (.+)$/;
+const ROOT_ARRAY = /^\[(\d*)\](?:<([A-Za-z_][A-Za-z0-9_]*)>)?:(.*)$/;
+const ENTRY_ARRAY = /\[(\d*)\](?:<([A-Za-z_][A-Za-z0-9_]*)>)?:(.*)/y;
 const KEY_TOKEN = /[A-Za-z0-9_\-]+/y;
+const FIELD_LABEL = /[A-Za-z0-9_\-]+/y;
+const DEFAULTS_PREFIX = " | defaults: ";
 const MISSING = Symbol("missing");
 
 /** Decode a SOON document back to its JSON value. */
@@ -37,6 +39,7 @@ class Parser {
   private readonly lines: string[];
   private i = 0;
   private readonly shapes = new Map<string, Shape>();
+  private readonly defaults = new Map<string, Map<string, JsonValue>>();
 
   constructor(text: string) {
     this.lines = text.split("\n");
@@ -53,7 +56,9 @@ class Parser {
       if (this.shapes.has(name)) {
         throw new SoonDecodeError(`duplicate shape declaration: ${name}`);
       }
-      this.shapes.set(name, new ShapeParser(m[2] as string).parse());
+      const { shape, defaults } = parseShapeDecl(m[2] as string);
+      this.shapes.set(name, shape);
+      this.defaults.set(name, defaults);
       this.i++;
     }
     this.skipBlanks();
@@ -64,7 +69,7 @@ class Parser {
     let value: JsonValue;
     if (m) {
       this.i++;
-      value = this.arrayValue(Number(m[1]), m[2], m[3] as string);
+      value = this.arrayValue(m[1] as string, m[2], m[3] as string);
     } else {
       const block = this.block(0);
       if (Object.keys(block).length === 0) {
@@ -110,7 +115,7 @@ class Parser {
         if (!m || pos + m[0].length !== line.length) {
           throw new SoonDecodeError(`malformed array entry at line ${this.i}`);
         }
-        out[key] = this.arrayValue(Number(m[1]), m[2], m[3] as string);
+        out[key] = this.arrayValue(m[1] as string, m[2], m[3] as string);
       } else if (c === ":") {
         const rest = line.slice(pos + 1);
         if (rest === "") {
@@ -160,7 +165,7 @@ class Parser {
     return parseLiteral(rest);
   }
 
-  private arrayValue(n: number, shapeName: string | undefined, rest: string): JsonValue[] {
+  private arrayValue(nRaw: string, shapeName: string | undefined, rest: string): JsonValue[] {
     if (shapeName !== undefined) {
       if (rest.trim()) {
         throw new SoonDecodeError("unexpected content after table header");
@@ -169,8 +174,23 @@ class Parser {
       if (!shape) {
         throw new SoonDecodeError(`unknown shape: ${shapeName}`);
       }
+      const defaults = this.defaults.get(shapeName) ?? new Map<string, JsonValue>();
       const rows: JsonValue[] = [];
+      if (nRaw === "") {
+        while (this.i < this.lines.length) {
+          const line = this.lines[this.i] as string;
+          if (isSkippable(line)) { this.i++; continue; }
+          if (!line.startsWith("(")) break;
+          this.i++;
+          rows.push(new TupleParser(line, this.i).parseRowWithDefaults(shape, defaults));
+        }
+        return rows;
+      }
+      const n = Number(nRaw);
       for (let r = 0; r < n; r++) {
+        while (this.i < this.lines.length && isSkippable(this.lines[this.i] as string)) {
+          this.i++;
+        }
         if (this.i >= this.lines.length) {
           throw new SoonDecodeError(
             `expected ${n} rows, found ${rows.length} (unexpected end of document)`,
@@ -178,10 +198,14 @@ class Parser {
         }
         const row = this.lines[this.i] as string;
         this.i++;
-        rows.push(new TupleParser(row, this.i).parseRow(shape));
+        rows.push(new TupleParser(row, this.i).parseRowWithDefaults(shape, defaults));
       }
       return rows;
     }
+    if (nRaw === "") {
+      throw new SoonDecodeError("primitive array requires an element count");
+    }
+    const n = Number(nRaw);
     if (rest === "") {
       if (n !== 0) {
         throw new SoonDecodeError(`expected ${n} elements, found 0`);
@@ -211,6 +235,60 @@ function fullJson(text: string, what: string): JsonValue {
     throw new SoonDecodeError(`trailing characters after ${what}`);
   }
   return value;
+}
+
+function isSkippable(line: string): boolean {
+  const stripped = line.trimStart();
+  return stripped === "" || stripped.startsWith("#");
+}
+
+function parseShapeDecl(rest: string): { shape: Shape; defaults: Map<string, JsonValue> } {
+  const { shape, end } = new ShapeParser(rest).parsePrefix();
+  const tail = rest.slice(end);
+  if (tail === "") return { shape, defaults: new Map() };
+  if (!tail.startsWith(DEFAULTS_PREFIX)) {
+    throw new SoonDecodeError(`unexpected trailing content in SHAPE decl: ${tail}`);
+  }
+  const defaultsStr = tail.slice(DEFAULTS_PREFIX.length);
+  const defaults = parseDefaults(defaultsStr);
+  const shapeFieldNames = new Set(shape.fields.map((f) => f.name));
+  for (const k of defaults.keys()) {
+    if (shapeFieldNames.has(k)) {
+      throw new SoonDecodeError(
+        `ELIDE default '${k}' collides with shape field of the same name`,
+      );
+    }
+  }
+  return { shape, defaults };
+}
+
+function parseDefaults(s: string): Map<string, JsonValue> {
+  const out = new Map<string, JsonValue>();
+  const tp = new TupleParser(s, 0);
+  for (;;) {
+    const name = tp.readLabelName();
+    if (tp.peekChar() !== "=") {
+      throw new SoonDecodeError(`malformed ELIDE default (expected '=') at position ${tp.pos}`);
+    }
+    tp.advance();
+    const c = tp.peekChar();
+    if (c === "!" || c === "(") {
+      throw new SoonDecodeError(`ELIDE default '${name}': only scalar literals are allowed`);
+    }
+    const value = tp.scalarTokenPublic();
+    if (out.has(name)) {
+      throw new SoonDecodeError(`duplicate default '${name}'`);
+    }
+    out.set(name, value);
+    tp.skipWsPublic();
+    if (tp.pos >= tp.length) break;
+    if (tp.peekChar() !== ",") {
+      throw new SoonDecodeError(`expected ',' between ELIDE defaults at position ${tp.pos}`);
+    }
+    tp.advance();
+    tp.skipWsPublic();
+  }
+  return out;
 }
 
 /** Cursor-based parser for row tuples and inline scalar lists (SPEC §6). */
@@ -248,11 +326,68 @@ class TupleParser {
     return c === undefined || c === "," || c === ")" || c === "]";
   }
 
+  get pos(): number { return this.i; }
+  get length(): number { return this.s.length; }
+  peekChar(): string { return this.peek(); }
+  advance(): void { this.i++; }
+  skipWsPublic(): void { this.skipWs(); }
+  scalarTokenPublic(extraBoundaries = ""): JsonValue { return this.scalarToken(extraBoundaries); }
+
+  readLabelName(): string {
+    if (this.peek() === '"') {
+      const value = this.rawJson();
+      if (typeof value !== "string") {
+        throw this.err("label name must be a string");
+      }
+      return value;
+    }
+    FIELD_LABEL.lastIndex = this.i;
+    const m = FIELD_LABEL.exec(this.s);
+    if (!m) {
+      throw this.err(`expected label name at position ${this.i}`);
+    }
+    this.i += m[0].length;
+    return m[0];
+  }
+
   parseRow(shape: Shape): JsonObject {
     const value = this.tuple(shape);
     this.skipWs();
     if (this.i !== this.s.length) {
       throw this.err("trailing characters in row");
+    }
+    return value;
+  }
+
+  parseRowWithDefaults(shape: Shape, defaults: Map<string, JsonValue>): JsonObject {
+    const value = this.tuple(shape);
+    const overrides = new Map<string, JsonValue>();
+    while (this.i < this.s.length) {
+      if (this.s[this.i] !== " ") {
+        throw this.err("expected ' +' before row override or end of row");
+      }
+      if (this.i + 1 >= this.s.length || this.s[this.i + 1] !== "+") {
+        break;
+      }
+      this.i += 2;
+      const name = this.readLabelName();
+      if (!defaults.has(name)) {
+        throw this.err(`override '${name}' not declared in ELIDE defaults`);
+      }
+      if (overrides.has(name)) {
+        throw this.err(`duplicate row override '${name}'`);
+      }
+      if (this.i >= this.s.length || this.s[this.i] !== "=") {
+        throw this.err(`malformed override (expected '=') for '${name}'`);
+      }
+      this.i++;
+      overrides.set(name, this.scalarToken(" "));
+    }
+    if (this.i !== this.s.length) {
+      throw this.err("trailing characters after row");
+    }
+    for (const [name, defaultVal] of defaults) {
+      value[name] = overrides.get(name) ?? defaultVal;
     }
     return value;
   }
@@ -355,7 +490,7 @@ class TupleParser {
     return value;
   }
 
-  private scalarToken(): JsonValue {
+  private scalarToken(extraBoundaries = ""): JsonValue {
     this.skipWs();
     if (this.peek() === '"') {
       const value = this.rawJson();
@@ -365,7 +500,7 @@ class TupleParser {
       return value;
     }
     let j = this.i;
-    while (j < this.s.length && !this.boundary(j)) j++;
+    while (j < this.s.length && !this.boundary(j) && !extraBoundaries.includes(this.s[j]!)) j++;
     const token = this.s.slice(this.i, j);
     if (token === "") {
       throw this.err("empty value");
