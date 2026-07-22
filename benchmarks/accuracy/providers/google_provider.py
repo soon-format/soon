@@ -21,9 +21,16 @@ class GoogleProvider:
         self._model_name = name
 
     def complete(self, system: str, user: str) -> tuple[str, dict[str, int | None]]:
-        # google-genai wants system + user rolled into one prompt.
-        prompt = f"{system}\n\n{user}"
-        resp = self._client.models.generate_content(model=self._model_name, contents=prompt)
+        from google.genai import types
+
+        resp = self._client.models.generate_content(
+            model=self._model_name,
+            contents=user,
+            config=types.GenerateContentConfig(
+                system_instruction=system,
+                temperature=0,
+            ),
+        )
         text = getattr(resp, "text", "") or ""
         # google-genai usage metadata shape varies; probe defensively.
         um = getattr(resp, "usage_metadata", None)

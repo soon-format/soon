@@ -24,6 +24,7 @@ class AnthropicProvider:
         resp = self._client.messages.create(
             model=self._model_name,
             max_tokens=1024,
+            temperature=0,
             system=system,
             messages=[{"role": "user", "content": user}],
         )

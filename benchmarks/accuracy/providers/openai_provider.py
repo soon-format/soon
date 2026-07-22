@@ -16,13 +16,14 @@ class OpenAIProvider:
             raise RuntimeError(
                 "pip install openai to use the openai provider"
             ) from exc
-        self._client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+        self._client = OpenAI(api_key=os.environ["OPENAI_API_KEY"], timeout=30)
         self.model = f"openai:{name}"
         self._model_name = name
 
     def complete(self, system: str, user: str) -> tuple[str, dict[str, int | None]]:
         resp = self._client.chat.completions.create(
             model=self._model_name,
+            temperature=0,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
