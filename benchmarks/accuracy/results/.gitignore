@@ -1,2 +1,3 @@
-models/
-retrieval-accuracy.md
+# Archived / scratch runs stay out of git; committed runs are the canonical
+# result set referenced by FINDINGS.md.
+models/archive/
