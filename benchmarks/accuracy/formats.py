@@ -24,6 +24,20 @@ Renderer = Callable[[Any], str]
 
 
 PRIMERS: dict[str, FormatSpec] = {
+    "toon": FormatSpec(
+        "toon",
+        "TOON: header ``array[count]{col1,col2,...}:`` declares columns once, "
+        "then each row is indented comma-separated values in column order.",
+        "toon",
+    ),
+    "gcf": FormatSpec(
+        "gcf",
+        "GCF: section headers ``## name [count]{col1,col2,...}`` declare columns, "
+        "then rows are pipe-separated values. Nested objects are flattened with "
+        "``>`` paths (e.g. ``customer>name``). Arrays use ``^`` placeholder "
+        "followed by ``.field [count]`` sub-sections.",
+        "gcf",
+    ),
     "json": FormatSpec(
         "json",
         "JSON: repeated keys per object, strict, comma-separated.",
@@ -129,13 +143,12 @@ RENDERERS: dict[str, Renderer] = {
 }
 
 
-DEFAULT_FORMATS = ("json", "toon", "soon", "soon-labeled")  # ``toon`` handled specially below
+DEFAULT_FORMATS = ("json", "yaml", "toon", "gcf", "soon", "soon-labeled")
 
 
 def render(value: Any, format_name: str) -> str:
     """Render *value* in the named format. Raises for unknown names."""
     if format_name == "toon":
-        # Optional dep — imported lazily so the harness works without TOON installed.
         try:
             from toon_py import encode as toon_encode  # type: ignore[import-not-found]
         except ImportError as exc:  # pragma: no cover
@@ -144,6 +157,9 @@ def render(value: Any, format_name: str) -> str:
                 "Install with: pip install toon-py"
             ) from exc
         return toon_encode(value)
+    if format_name == "gcf":
+        from .gcf_encoder import encode as gcf_encode
+        return gcf_encode(value)
     renderer = RENDERERS.get(format_name)
     if renderer is None:
         raise KeyError(f"unknown format: {format_name!r}")

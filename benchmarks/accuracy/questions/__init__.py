@@ -9,7 +9,7 @@ generators evolve. No LLM in the loop.
 from __future__ import annotations
 
 from ..types import Question
-from . import deep, events, nested, shared_ref, sparse, tabular
+from . import code_graph, deep, events, nested, shared_ref, sparse, tabular
 
 
 def all_questions(datasets: dict[str, object]) -> list[Question]:
@@ -32,4 +32,6 @@ def all_questions(datasets: dict[str, object]) -> list[Question]:
         out += sparse.generate(datasets["L10"])
     if "L11" in datasets:
         out += shared_ref.generate(datasets["L11"])
+    if "L12" in datasets:
+        out += code_graph.generate(datasets["L12"])
     return out

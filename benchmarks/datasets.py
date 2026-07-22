@@ -232,6 +232,59 @@ def l9_adversarial_nonuniform() -> Any:
     return {"chaos": out}
 
 
+QUALIFIED_NAMES = [
+    "pkg/api.HandleRequest", "pkg/api.ProcessResponse", "pkg/api.ValidateConfig",
+    "pkg/api.ParsePayload", "pkg/api.SendReply", "pkg/auth.Authenticate",
+    "pkg/auth.VerifyToken", "pkg/auth.RefreshSession", "pkg/auth.RevokeAccess",
+    "pkg/auth.CheckPermission", "pkg/db.Connect", "pkg/db.Query", "pkg/db.Migrate",
+    "pkg/db.Close", "pkg/db.Pool", "pkg/cache.Get", "pkg/cache.Set",
+    "pkg/cache.Invalidate", "pkg/cache.Flush", "pkg/cache.TTL",
+    "pkg/log.Info", "pkg/log.Error", "pkg/log.Debug", "pkg/log.Warn", "pkg/log.Fatal",
+    "pkg/http.Router", "pkg/http.Middleware", "pkg/http.Handler", "pkg/http.Listen",
+    "pkg/http.Shutdown", "pkg/config.Load", "pkg/config.Validate", "pkg/config.Watch",
+    "pkg/config.Default", "pkg/config.Override", "pkg/queue.Enqueue", "pkg/queue.Dequeue",
+    "pkg/queue.Peek", "pkg/queue.Drain", "pkg/queue.Size", "pkg/metrics.Counter",
+    "pkg/metrics.Gauge", "pkg/metrics.Histogram", "pkg/metrics.Summary",
+    "pkg/metrics.Register", "pkg/health.Check", "pkg/health.Readiness",
+    "pkg/health.Liveness", "pkg/health.Startup", "pkg/health.Dependencies",
+]
+KINDS = ["function", "method", "type", "interface", "constant"]
+PROVENANCES = ["lsp_resolved", "ast_inferred", "structural", "heuristic"]
+
+
+def l12_code_graph() -> Any:
+    """500-symbol, 200-edge code graph — comparable to GCF's benchmark
+    dataset.  Symbols are grouped into three distance categories:
+    targets (distance=0), related (distance=1), extended (distance=2)."""
+    rnd = random.Random(12)
+    symbols = []
+    for i in range(500):
+        base = QUALIFIED_NAMES[i % len(QUALIFIED_NAMES)]
+        suffix = f".v{i // len(QUALIFIED_NAMES)}" if i >= len(QUALIFIED_NAMES) else ""
+        symbols.append({
+            "qualifiedName": base + suffix,
+            "kind": rnd.choice(KINDS),
+            "score": round(rnd.uniform(0.1, 1.0), 2),
+            "provenance": rnd.choice(PROVENANCES),
+            "distance": rnd.choices([0, 1, 2], weights=[33, 34, 33])[0],
+        })
+    edges = []
+    for _ in range(200):
+        src = rnd.randrange(500)
+        dst = rnd.randrange(500)
+        while dst == src:
+            dst = rnd.randrange(500)
+        edges.append({
+            "source": src,
+            "target": dst,
+            "relation": rnd.choice(["calls", "implements", "imports", "references"]),
+        })
+    return {
+        "symbols": symbols,
+        "edges": edges,
+    }
+
+
 DATASETS = [
     ("L1 flat config", "flat object, 6 keys", l1_flat_config),
     ("L2 flat table", "100 uniform rows (TOON/CSV sweet spot)", l2_flat_table),
@@ -244,4 +297,5 @@ DATASETS = [
     ("L9 adversarial", "irregular everything (worst case)", l9_adversarial_nonuniform),
     ("L10 sparse API response", "100 rows with ~90% default columns (ELIDE showcase)", l10_sparse_api_response),
     ("L11 shared-address employees", "90 employees, ~90% share few offices (REF showcase)", l11_shared_address_employees),
+    ("L12 code graph", "500 symbols + 200 edges (GCF benchmark shape)", l12_code_graph),
 ]
